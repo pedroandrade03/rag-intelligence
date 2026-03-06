@@ -5,15 +5,13 @@ import logging
 from dotenv import load_dotenv
 
 from rag_intelligence.config import ConfigError, SilverSettings
+from rag_intelligence.logging import setup_logging
 from rag_intelligence.silver import run_silver_transform
 
 
 def main() -> int:
     load_dotenv()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
-    )
+    setup_logging()
 
     try:
         settings = SilverSettings.from_env()

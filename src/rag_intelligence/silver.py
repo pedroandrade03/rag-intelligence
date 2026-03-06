@@ -137,7 +137,7 @@ def clean_csv_file(source_path: Path, target_path: Path) -> FileQualityMetrics:
         source_fieldnames = list(reader.fieldnames or [])
         normalized_fieldnames = normalize_column_names(source_fieldnames)
         mapping = list(zip(source_fieldnames, normalized_fieldnames, strict=False))
-        numeric_columns = [column for column in normalized_fieldnames if is_numeric_metric_column(column)]
+        numeric_columns = [col for col in normalized_fieldnames if is_numeric_metric_column(col)]
 
         with target_path.open("w", newline="", encoding="utf-8") as target_file:
             writer = csv.DictWriter(target_file, fieldnames=normalized_fieldnames)
@@ -172,13 +172,14 @@ def clean_csv_file(source_path: Path, target_path: Path) -> FileQualityMetrics:
                     invalid_rows += 1
                     continue
 
-                dedup_key = tuple((normalized_row.get(column) or "") for column in normalized_fieldnames)
+                dedup_key = tuple((normalized_row.get(col) or "") for col in normalized_fieldnames)
                 if dedup_key in seen_rows:
                     duplicate_rows += 1
                     continue
 
                 seen_rows.add(dedup_key)
-                writer.writerow({column: normalized_row.get(column) or "" for column in normalized_fieldnames})
+                out = {col: normalized_row.get(col) or "" for col in normalized_fieldnames}
+                writer.writerow(out)
                 rows_output += 1
 
     return FileQualityMetrics(
@@ -216,10 +217,12 @@ def run_silver_transform(
         settings.bronze_source_run_id,
     )
 
-    source_objects = sorted(
+    source_objects: list[str] = sorted(
         obj.object_name
-        for obj in client.list_objects(settings.bronze_bucket, prefix=source_prefix, recursive=True)
-        if obj.object_name.lower().endswith(".csv")
+        for obj in client.list_objects(
+            settings.bronze_bucket, prefix=source_prefix, recursive=True
+        )
+        if obj.object_name and obj.object_name.lower().endswith(".csv")
     )
     if not source_objects:
         raise FileNotFoundError(

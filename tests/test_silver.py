@@ -134,19 +134,16 @@ def test_run_silver_transform_processes_all_csvs_and_writes_quality_report() -> 
     initial_objects = {
         "bronze": {
             f"{bronze_prefix}/mm_master_demos.csv": (
-                "Damage,Tick,Player,Notes\n"
-                "10,1, Alice , ok \n"
-                "10,1,Alice,ok\n"
-                "-5,2,Bob,oops\n"
-                "abc,4,Eve,err\n"
-                ",,,\n"
-            ).encode("utf-8"),
+                b"Damage,Tick,Player,Notes\n"
+                b"10,1, Alice , ok \n"
+                b"10,1,Alice,ok\n"
+                b"-5,2,Bob,oops\n"
+                b"abc,4,Eve,err\n"
+                b",,,\n"
+            ),
             f"{bronze_prefix}/nested/mm_grenades_demos.csv": (
-                "Round Num,Flash Duration,Money\n"
-                "1,1.5,800\n"
-                "1,1.5,800\n"
-                "2,-1,1000\n"
-            ).encode("utf-8"),
+                b"Round Num,Flash Duration,Money\n1,1.5,800\n1,1.5,800\n2,-1,1000\n"
+            ),
             f"{bronze_prefix}/maps/de_inferno.png": b"png",
         }
     }
@@ -169,9 +166,7 @@ def test_run_silver_transform_processes_all_csvs_and_writes_quality_report() -> 
 
     silver_objects = fake_minio.objects["silver"]
     cleaned_key_1 = "csgo-matchmaking-damage/20260306T023831Z/cleaned/mm_master_demos.csv"
-    cleaned_key_2 = (
-        "csgo-matchmaking-damage/20260306T023831Z/cleaned/nested/mm_grenades_demos.csv"
-    )
+    cleaned_key_2 = "csgo-matchmaking-damage/20260306T023831Z/cleaned/nested/mm_grenades_demos.csv"
     report_key = "csgo-matchmaking-damage/20260306T023831Z/quality_report.json"
 
     assert cleaned_key_1 in silver_objects
