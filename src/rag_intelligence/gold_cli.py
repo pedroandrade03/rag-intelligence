@@ -6,14 +6,12 @@ from dotenv import load_dotenv
 
 from rag_intelligence.config import ConfigError, GoldSettings
 from rag_intelligence.gold import run_gold_transform
+from rag_intelligence.logging import setup_logging
 
 
 def main() -> int:
     load_dotenv()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
-    )
+    setup_logging()
 
     try:
         settings = GoldSettings.from_env()

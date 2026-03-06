@@ -14,6 +14,7 @@ from pathlib import Path
 from minio import Minio
 
 from rag_intelligence.config import SilverSettings
+from rag_intelligence.minio_utils import clean_cell, ensure_bucket
 
 LOGGER = logging.getLogger(__name__)
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
@@ -84,13 +85,6 @@ def normalize_column_names(fieldnames: list[str]) -> list[str]:
             normalized_names.append(f"{base_name}_{counter}")
 
     return normalized_names
-
-
-def clean_cell(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip()
-    return normalized or None
 
 
 def is_numeric_metric_column(column_name: str) -> bool:
@@ -190,13 +184,6 @@ def clean_csv_file(source_path: Path, target_path: Path) -> FileQualityMetrics:
         invalid_rows=invalid_rows,
         all_null_rows=all_null_rows,
     )
-
-
-def ensure_bucket(client: Minio, bucket_name: str) -> None:
-    if client.bucket_exists(bucket_name):
-        return
-    LOGGER.info("Creating bucket %s", bucket_name)
-    client.make_bucket(bucket_name)
 
 
 def run_silver_transform(

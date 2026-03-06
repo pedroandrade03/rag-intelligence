@@ -12,6 +12,7 @@ from pathlib import Path
 from minio import Minio
 
 from rag_intelligence.config import GoldSettings
+from rag_intelligence.minio_utils import clean_cell, ensure_bucket
 
 LOGGER = logging.getLogger(__name__)
 
@@ -133,13 +134,6 @@ def build_gold_quality_report_key(dataset_prefix: str, run_id: str) -> str:
     normalized_prefix = dataset_prefix.strip("/")
     normalized_run_id = run_id.strip("/")
     return f"{normalized_prefix}/{normalized_run_id}/quality_report.json"
-
-
-def clean_cell(value: str | None) -> str | None:
-    if value is None:
-        return None
-    cleaned = value.strip()
-    return cleaned or None
 
 
 def normalize_finite_numeric(value: str) -> str:
@@ -306,13 +300,6 @@ def project_row(
     return projected, None
 
 
-def ensure_bucket(client: Minio, bucket_name: str) -> None:
-    if client.bucket_exists(bucket_name):
-        return
-    LOGGER.info("Creating bucket %s", bucket_name)
-    client.make_bucket(bucket_name)
-
-
 def run_gold_transform(
     settings: GoldSettings,
     *,
@@ -331,14 +318,14 @@ def run_gold_transform(
         settings.silver_dataset_prefix,
         settings.silver_source_run_id,
     )
-    source_objects = sorted(
+    source_objects: list[str] = sorted(
         obj.object_name
         for obj in client.list_objects(
             settings.silver_bucket,
             prefix=source_prefix,
             recursive=True,
         )
-        if obj.object_name.lower().endswith(".csv")
+        if obj.object_name and obj.object_name.lower().endswith(".csv")
     )
     if not source_objects:
         raise FileNotFoundError(
