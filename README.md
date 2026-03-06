@@ -29,6 +29,79 @@ Camadas do projeto:
 
 ---
 
+# Implementação PB01
+
+## Objetivo
+
+Carregar o dataset `skihikingkevin/csgo-matchmaking-damage` do Kaggle para a camada Bronze em um MinIO local.
+
+## O que é armazenado na Bronze
+
+Cada execução gera um prefixo versionado em:
+
+`bronze/csgo-matchmaking-damage/<run_id>/`
+
+Conteúdo enviado:
+
+- `raw/csgo-matchmaking-damage.zip`: artefato bruto baixado do Kaggle
+- `extracted/*.csv`: arquivos tabulares extraídos do ZIP
+- `extracted/*.png`: imagens de radar/mapa presentes no dataset
+
+Esse formato preserva o artefato original e também deixa os arquivos úteis já acessíveis para as próximas etapas.
+
+## Configuração
+
+1. Copie `.env.example` para `.env`.
+2. Preencha `KAGGLE_USERNAME` e `KAGGLE_KEY`, ou use um `kaggle.json` montado no container.
+
+Variáveis principais:
+
+- `MINIO_ENDPOINT=localhost:9000`
+- `MINIO_ACCESS_KEY=minioadmin`
+- `MINIO_SECRET_KEY=minioadmin`
+- `MINIO_BUCKET=bronze`
+- `MINIO_SECURE=false`
+- `BRONZE_DATASET_SLUG=skihikingkevin/csgo-matchmaking-damage`
+- `BRONZE_DATASET_PREFIX=csgo-matchmaking-damage`
+- `BRONZE_RUN_ID=` opcional; se vazio, o sistema gera um timestamp UTC no formato `YYYYMMDDTHHMMSSZ`
+
+## Execução com Docker Compose
+
+Suba o MinIO:
+
+```bash
+docker compose up -d minio
+```
+
+Execute a importação:
+
+```bash
+docker compose run --rm bronze-importer
+```
+
+Se preferir usar `kaggle.json` em vez de variáveis de ambiente, monte o diretório da credencial no container. Exemplo em PowerShell:
+
+```powershell
+docker compose run --rm --volume "${env:USERPROFILE}\.kaggle:/root/.kaggle:ro" bronze-importer
+```
+
+## Execução local para debug
+
+Instale as dependências e execute o módulo:
+
+```bash
+pip install -e .[dev]
+python -m rag_intelligence
+```
+
+## Validação
+
+Abra o console do MinIO em `http://localhost:9001` e confirme que o bucket `bronze` contém objetos em:
+
+`csgo-matchmaking-damage/<run_id>/`
+
+Os critérios mínimos de PB01 são atendidos quando o bucket Bronze contém o ZIP bruto e os arquivos extraídos `.csv`/`.png` da carga.
+
 # Epic 1 — Preparação de Dados de Partidas
 
 **Objetivo:** organizar e estruturar os dados de partidas de CS:GO.

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-intelligence"
+version = "0.1.0"
+description = "PB01 ingestion pipeline for loading the Kaggle CS:GO matchmaking dataset into MinIO Bronze."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "kaggle>=1.7.4.5",
+  "minio>=7.2.18",
+  "python-dotenv>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.5",
+]
+
+[project.scripts]
+bronze-import = "rag_intelligence.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
