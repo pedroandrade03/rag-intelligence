@@ -98,10 +98,22 @@ def test_build_gold_events_key_uses_curated_prefix() -> None:
 
 
 def test_infer_event_type_uses_file_hints() -> None:
-    assert infer_event_type("x/esea_master_dmg_demos.part1.csv", ["file", "round"]) == EVENT_TYPE_DAMAGE
-    assert infer_event_type("x/esea_master_grenades_demos.part1.csv", ["file", "round"]) == EVENT_TYPE_GRENADE
-    assert infer_event_type("x/esea_master_kills_demos.part1.csv", ["file", "round"]) == EVENT_TYPE_KILL
-    assert infer_event_type("x/esea_meta_demos.part1.csv", ["file", "round"]) == EVENT_TYPE_ROUND_META
+    assert (
+        infer_event_type("x/esea_master_dmg_demos.part1.csv", ["file", "round"])
+        == EVENT_TYPE_DAMAGE
+    )
+    assert (
+        infer_event_type("x/esea_master_grenades_demos.part1.csv", ["file", "round"])
+        == EVENT_TYPE_GRENADE
+    )
+    assert (
+        infer_event_type("x/esea_master_kills_demos.part1.csv", ["file", "round"])
+        == EVENT_TYPE_KILL
+    )
+    assert (
+        infer_event_type("x/esea_meta_demos.part1.csv", ["file", "round"])
+        == EVENT_TYPE_ROUND_META
+    )
 
 
 def test_project_row_applies_map_enrichment_and_allows_missing_victim_position() -> None:
@@ -166,28 +178,28 @@ def test_run_gold_transform_processes_mixed_event_types_and_writes_quality_repor
     initial_objects = {
         "silver": {
             f"{silver_prefix}/metadata.csv": (
-                "file,round,map,start_seconds,end_seconds,winner_team,winner_side,round_type,ct_eq_val,t_eq_val\n"
-                "demo_1,1,de_mirage,0,45,ct,ct,eco,2500,1200\n"
-                "demo_kill,1,de_inferno,0,50,t,t,full_buy,3000,4000\n"
-            ).encode("utf-8"),
+                b"file,round,map,start_seconds,end_seconds,winner_team,winner_side,round_type,ct_eq_val,t_eq_val\n"
+                b"demo_1,1,de_mirage,0,45,ct,ct,eco,2500,1200\n"
+                b"demo_kill,1,de_inferno,0,50,t,t,full_buy,3000,4000\n"
+            ),
             f"{silver_prefix}/damage.csv": (
-                "file,round,map,wp,hp_dmg,arm_dmg,att_pos_x,att_pos_y,vic_pos_x,vic_pos_y,hitbox\n"
-                "demo_1,1,,ak47,32,,100.0,200,,,head\n"
-                "demo_2,2,de_inferno,,10,5,1,2,3,4,chest\n"
-            ).encode("utf-8"),
+                b"file,round,map,wp,hp_dmg,arm_dmg,att_pos_x,att_pos_y,vic_pos_x,vic_pos_y,hitbox\n"
+                b"demo_1,1,,ak47,32,,100.0,200,,,head\n"
+                b"demo_2,2,de_inferno,,10,5,1,2,3,4,chest\n"
+            ),
             f"{silver_prefix}/grenades.csv": (
-                "file,round,map,nade,hp_dmg,arm_dmg,att_pos_x,att_pos_y,vic_pos_x,vic_pos_y,nade_land_x,nade_land_y\n"
-                "demo_3,3,de_nuke,hegrenade,,40,1,2,,,500,700\n"
-                "demo_4,4,de_nuke,flash,,,,2,,,200,250\n"
-            ).encode("utf-8"),
+                b"file,round,map,nade,hp_dmg,arm_dmg,att_pos_x,att_pos_y,vic_pos_x,vic_pos_y,nade_land_x,nade_land_y\n"
+                b"demo_3,3,de_nuke,hegrenade,,40,1,2,,,500,700\n"
+                b"demo_4,4,de_nuke,flash,,,,2,,,200,250\n"
+            ),
             f"{silver_prefix}/kills.csv": (
-                "file,round,tick,seconds,att_team,vic_team,att_side,vic_side,wp,wp_type,ct_alive,t_alive,is_bomb_planted\n"
-                "demo_kill,1,100,12.3,A,B,t,ct,ak47,rifle,4,2,false\n"
-            ).encode("utf-8"),
+                b"file,round,tick,seconds,att_team,vic_team,att_side,vic_side,wp,wp_type,ct_alive,t_alive,is_bomb_planted\n"
+                b"demo_kill,1,100,12.3,A,B,t,ct,ak47,rifle,4,2,false\n"
+            ),
             f"{silver_prefix}/map_data.csv": (
-                "column,endx,endy\n"
-                "0,1,2\n"
-            ).encode("utf-8"),
+                b"column,endx,endy\n"
+                b"0,1,2\n"
+            ),
         }
     }
     fake_minio = FakeMinio(
@@ -222,7 +234,12 @@ def test_run_gold_transform_processes_mixed_event_types_and_writes_quality_repor
     assert rows[0]["vic_pos_x"] == ""
     assert rows[0]["hitbox"] == "head"
 
-    event_type_counts = {EVENT_TYPE_DAMAGE: 0, EVENT_TYPE_GRENADE: 0, EVENT_TYPE_KILL: 0, EVENT_TYPE_ROUND_META: 0}
+    event_type_counts = {
+        EVENT_TYPE_DAMAGE: 0,
+        EVENT_TYPE_GRENADE: 0,
+        EVENT_TYPE_KILL: 0,
+        EVENT_TYPE_ROUND_META: 0,
+    }
     for row in rows:
         event_type_counts[row["event_type"]] += 1
 
@@ -273,9 +290,9 @@ def test_run_gold_transform_fails_when_no_valid_rows() -> None:
         initial_objects={
             "silver": {
                 f"{silver_prefix}/damage.csv": (
-                    "file,round,map,wp,hp_dmg,arm_dmg,att_pos_x,att_pos_y,vic_pos_x,vic_pos_y\n"
-                    "demo_1,1,,ak47,10,0,1,2,3,4\n"
-                ).encode("utf-8"),
+                    b"file,round,map,wp,hp_dmg,arm_dmg,att_pos_x,att_pos_y,vic_pos_x,vic_pos_y\n"
+                    b"demo_1,1,,ak47,10,0,1,2,3,4\n"
+                ),
             }
         },
         existing_buckets={"silver"},

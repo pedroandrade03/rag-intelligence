@@ -333,7 +333,11 @@ def run_gold_transform(
     )
     source_objects = sorted(
         obj.object_name
-        for obj in client.list_objects(settings.silver_bucket, prefix=source_prefix, recursive=True)
+        for obj in client.list_objects(
+            settings.silver_bucket,
+            prefix=source_prefix,
+            recursive=True,
+        )
         if obj.object_name.lower().endswith(".csv")
     )
     if not source_objects:
@@ -360,7 +364,9 @@ def run_gold_transform(
             client.fget_object(settings.silver_bucket, source_object, str(source_file))
             local_sources.append((source_object, relative_path, source_file))
 
-        map_lookup = build_map_lookup([(source_object, source_file) for source_object, _, source_file in local_sources])
+        map_lookup = build_map_lookup(
+            [(source_object, source_file) for source_object, _, source_file in local_sources]
+        )
 
         events_file = temp_path / "out" / "events.csv"
         events_file.parent.mkdir(parents=True, exist_ok=True)
@@ -370,7 +376,12 @@ def run_gold_transform(
             writer.writeheader()
 
             for source_object, relative_path, source_file in local_sources:
-                with source_file.open("r", newline="", encoding="utf-8-sig", errors="replace") as csv_file:
+                with source_file.open(
+                    "r",
+                    newline="",
+                    encoding="utf-8-sig",
+                    errors="replace",
+                ) as csv_file:
                     reader = csv.DictReader(csv_file)
                     fieldnames = list(reader.fieldnames or [])
                     event_type = infer_event_type(source_object, fieldnames)
@@ -430,7 +441,9 @@ def run_gold_transform(
                 file_reports.append(metrics)
 
         if total_rows_output <= 0:
-            raise ValueError("No valid rows were produced for Gold after applying required schema rules.")
+            raise ValueError(
+                "No valid rows were produced for Gold after applying required schema rules."
+            )
 
         events_key = build_gold_events_key(
             settings.gold_dataset_prefix,
