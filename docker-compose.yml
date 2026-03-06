@@ -86,6 +86,26 @@ services:
       BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
       BRONZE_RUN_ID: ${BRONZE_RUN_ID:-}
 
+  silver-transformer:
+    build:
+      context: .
+    command: ["silver-transform"]
+    profiles:
+      - jobs
+    depends_on:
+      - minio
+    environment:
+      MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-bronze}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      BRONZE_SOURCE_RUN_ID: ${BRONZE_SOURCE_RUN_ID:-}
+      SILVER_BUCKET: ${SILVER_BUCKET:-silver}
+      SILVER_DATASET_PREFIX: ${SILVER_DATASET_PREFIX:-}
+      SILVER_RUN_ID: ${SILVER_RUN_ID:-}
+
 volumes:
   minio-data:
   tsdb-data:
