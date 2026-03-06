@@ -324,6 +324,57 @@ Verifique no MinIO:
 
 As regras aplicadas incluem normalização de colunas, trim de texto, remoção de linhas totalmente nulas, remoção de duplicados e descarte de valores numéricos inválidos/negativos nas métricas conhecidas.
 
+# Implementação PB03
+
+## Objetivo
+
+Consolidar os CSVs da Silver em um dataset Gold único com schema canônico para análise, mantendo compatibilidade com a v1 e adicionando contexto de evento.
+
+Colunas base (compatíveis com a versão anterior):
+
+`file, round, map, weapon, hp_dmg, arm_dmg, att_pos_x, att_pos_y, vic_pos_x, vic_pos_y`
+
+Colunas extras:
+
+`event_type, source_file, tick, seconds, start_seconds, end_seconds, att_team, vic_team, att_side, vic_side, wp_type, nade, hitbox, bomb_site, is_bomb_planted, att_id, vic_id, att_rank, vic_rank, winner_team, winner_side, round_type, ct_eq_val, t_eq_val, ct_alive, t_alive, nade_land_x, nade_land_y, avg_match_rank`
+
+## Pré-requisito
+
+- Executar PB02 antes da PB03.
+- Definir `SILVER_SOURCE_RUN_ID` com um run existente na Silver.
+
+## Configuração
+
+Variáveis da PB03:
+
+- `SILVER_SOURCE_RUN_ID=` obrigatório
+- `GOLD_BUCKET=gold`
+- `GOLD_DATASET_PREFIX=` opcional; se vazio usa `SILVER_DATASET_PREFIX` e depois `BRONZE_DATASET_PREFIX`
+- `GOLD_RUN_ID=` opcional; se vazio usa `SILVER_SOURCE_RUN_ID`
+
+## Execução
+
+Via Docker Compose:
+
+```bash
+docker compose run --rm gold-transformer
+```
+
+Via Makefile:
+
+```bash
+make gold
+```
+
+## Validação
+
+Verifique no MinIO:
+
+- dataset consolidado em `gold/<dataset_prefix>/<run_id>/curated/events.csv`
+- relatório de qualidade em `gold/<dataset_prefix>/<run_id>/quality_report.json`
+
+O pipeline aplica `event_type` por tipo de arquivo, fallback de arma (`wp` -> `nade`), enriquecimento de mapa por (`file`, `round`), mantém posição da vítima opcional e valida como numéricas finitas as posições que estiverem preenchidas.
+
 # Epic 1 — Preparação de Dados de Partidas
 
 **Objetivo:** organizar e estruturar os dados de partidas de CS:GO.

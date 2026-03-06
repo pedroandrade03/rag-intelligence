@@ -11,6 +11,7 @@ from pathlib import Path
 from minio import Minio
 
 from rag_intelligence.config import Settings
+from rag_intelligence.minio_utils import ensure_bucket
 
 LOGGER = logging.getLogger(__name__)
 EXTRACTED_SUFFIXES = {".csv", ".png"}
@@ -65,13 +66,6 @@ def extract_archive(archive_path: Path, destination: Path) -> None:
     LOGGER.info("Extracting archive %s", archive_path.name)
     with zipfile.ZipFile(archive_path) as zip_file:
         zip_file.extractall(destination)
-
-
-def ensure_bucket(client: Minio, bucket_name: str) -> None:
-    if client.bucket_exists(bucket_name):
-        return
-    LOGGER.info("Creating bucket %s", bucket_name)
-    client.make_bucket(bucket_name)
 
 
 def upload_file(client: Minio, bucket_name: str, item: UploadItem) -> None:

@@ -94,6 +94,59 @@ class SilverSettings:
         )
 
 
+@dataclass(frozen=True)
+class GoldSettings:
+    minio_endpoint: str
+    minio_access_key: str
+    minio_secret_key: str
+    minio_secure: bool
+    silver_bucket: str
+    gold_bucket: str
+    silver_dataset_prefix: str
+    gold_dataset_prefix: str
+    silver_source_run_id: str
+    gold_run_id: str
+
+    @classmethod
+    def from_env(cls, env: dict[str, str] | None = None) -> GoldSettings:
+        raw_env = dict(os.environ if env is None else env)
+
+        minio_endpoint = require_env(raw_env, "MINIO_ENDPOINT")
+        minio_access_key = require_env(raw_env, "MINIO_ACCESS_KEY")
+        minio_secret_key = require_env(raw_env, "MINIO_SECRET_KEY")
+        silver_source_run_id = require_env(raw_env, "SILVER_SOURCE_RUN_ID")
+
+        bronze_dataset_prefix = raw_env.get("BRONZE_DATASET_PREFIX", "").strip()
+        silver_dataset_prefix = (
+            raw_env.get("SILVER_DATASET_PREFIX", "").strip() or bronze_dataset_prefix
+        )
+        if not silver_dataset_prefix:
+            raise ConfigError(
+                "Missing required environment variable: SILVER_DATASET_PREFIX "
+                "(or BRONZE_DATASET_PREFIX as fallback)"
+            )
+
+        gold_dataset_prefix = (
+            raw_env.get("GOLD_DATASET_PREFIX", "").strip() or silver_dataset_prefix
+        )
+        silver_bucket = raw_env.get("SILVER_BUCKET", "silver").strip() or "silver"
+        gold_bucket = raw_env.get("GOLD_BUCKET", "gold").strip() or "gold"
+        gold_run_id = raw_env.get("GOLD_RUN_ID", "").strip() or silver_source_run_id
+
+        return cls(
+            minio_endpoint=minio_endpoint,
+            minio_access_key=minio_access_key,
+            minio_secret_key=minio_secret_key,
+            minio_secure=parse_bool(raw_env.get("MINIO_SECURE", "false")),
+            silver_bucket=silver_bucket,
+            gold_bucket=gold_bucket,
+            silver_dataset_prefix=silver_dataset_prefix,
+            gold_dataset_prefix=gold_dataset_prefix,
+            silver_source_run_id=silver_source_run_id,
+            gold_run_id=gold_run_id,
+        )
+
+
 def require_env(env: dict[str, str], key: str) -> str:
     value = env.get(key, "").strip()
     if not value:

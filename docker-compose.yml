@@ -106,6 +106,27 @@ services:
       SILVER_DATASET_PREFIX: ${SILVER_DATASET_PREFIX:-}
       SILVER_RUN_ID: ${SILVER_RUN_ID:-}
 
+  gold-transformer:
+    build:
+      context: .
+    command: ["gold-transform"]
+    profiles:
+      - jobs
+    depends_on:
+      - minio
+    environment:
+      MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      SILVER_BUCKET: ${SILVER_BUCKET:-silver}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      SILVER_DATASET_PREFIX: ${SILVER_DATASET_PREFIX:-}
+      SILVER_SOURCE_RUN_ID: ${SILVER_SOURCE_RUN_ID:-}
+      GOLD_BUCKET: ${GOLD_BUCKET:-gold}
+      GOLD_DATASET_PREFIX: ${GOLD_DATASET_PREFIX:-}
+      GOLD_RUN_ID: ${GOLD_RUN_ID:-}
+
 volumes:
   minio-data:
   tsdb-data:
