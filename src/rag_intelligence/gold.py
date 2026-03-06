@@ -15,7 +15,7 @@ from rag_intelligence.config import GoldSettings
 
 LOGGER = logging.getLogger(__name__)
 
-GOLD_COLUMNS = [
+BASE_GOLD_COLUMNS = [
     "file",
     "round",
     "map",
@@ -28,10 +28,51 @@ GOLD_COLUMNS = [
     "vic_pos_y",
 ]
 
-REQUIRED_COLUMNS = {"file", "round", "att_pos_x", "att_pos_y", "vic_pos_x", "vic_pos_y"}
+EXTRA_GOLD_COLUMNS = [
+    "event_type",
+    "source_file",
+    "tick",
+    "seconds",
+    "start_seconds",
+    "end_seconds",
+    "att_team",
+    "vic_team",
+    "att_side",
+    "vic_side",
+    "wp_type",
+    "nade",
+    "hitbox",
+    "bomb_site",
+    "is_bomb_planted",
+    "att_id",
+    "vic_id",
+    "att_rank",
+    "vic_rank",
+    "winner_team",
+    "winner_side",
+    "round_type",
+    "ct_eq_val",
+    "t_eq_val",
+    "ct_alive",
+    "t_alive",
+    "nade_land_x",
+    "nade_land_y",
+    "avg_match_rank",
+]
+
+GOLD_COLUMNS = BASE_GOLD_COLUMNS + EXTRA_GOLD_COLUMNS
+
+FILE_REQUIRED_COLUMNS = {"file", "round"}
 WEAPON_COLUMNS = ("wp", "nade")
 DAMAGE_COLUMNS = ("hp_dmg", "arm_dmg")
 POSITION_COLUMNS = ("att_pos_x", "att_pos_y", "vic_pos_x", "vic_pos_y")
+
+EVENT_TYPE_DAMAGE = "damage"
+EVENT_TYPE_GRENADE = "grenade"
+EVENT_TYPE_KILL = "kill"
+EVENT_TYPE_ROUND_META = "round_meta"
+EVENT_TYPE_MAP_LAYOUT = "map_layout"
+EVENT_TYPE_GENERIC = "event"
 
 REMOVAL_REASONS = (
     "missing_weapon",
@@ -45,6 +86,7 @@ REMOVAL_REASONS = (
 @dataclass(frozen=True)
 class GoldFileQualityMetrics:
     source_object: str
+    event_type: str
     rows_read: int
     rows_output: int
     missing_weapon: int
@@ -116,11 +158,47 @@ def normalize_finite_numeric(value: str) -> str:
     return normalized or "0"
 
 
-def has_minimum_projection_columns(fieldnames: list[str]) -> bool:
+def infer_event_type(source_object: str, fieldnames: list[str]) -> str:
+    name = Path(source_object).name.lower()
     available = set(fieldnames)
-    has_weapon = any(column in available for column in WEAPON_COLUMNS)
-    has_damage = any(column in available for column in DAMAGE_COLUMNS)
-    return REQUIRED_COLUMNS.issubset(available) and has_weapon and has_damage
+
+    if "map_data" in name:
+        return EVENT_TYPE_MAP_LAYOUT
+    if "meta" in name:
+        return EVENT_TYPE_ROUND_META
+    if "kill" in name:
+        return EVENT_TYPE_KILL
+    if "grenade" in name:
+        return EVENT_TYPE_GRENADE
+    if "dmg" in name:
+        return EVENT_TYPE_DAMAGE
+    if "nade" in available:
+        return EVENT_TYPE_GRENADE
+    if any(column in available for column in DAMAGE_COLUMNS):
+        return EVENT_TYPE_DAMAGE
+
+    return EVENT_TYPE_GENERIC
+
+
+def has_minimum_projection_columns(fieldnames: list[str], event_type: str) -> bool:
+    available = set(fieldnames)
+    if not FILE_REQUIRED_COLUMNS.issubset(available):
+        return False
+
+    if event_type == EVENT_TYPE_MAP_LAYOUT:
+        return False
+    if event_type == EVENT_TYPE_ROUND_META:
+        return "map" in available
+    if event_type == EVENT_TYPE_KILL:
+        return any(column in available for column in WEAPON_COLUMNS)
+    if event_type == EVENT_TYPE_DAMAGE:
+        has_weapon = any(column in available for column in WEAPON_COLUMNS)
+        has_damage = any(column in available for column in DAMAGE_COLUMNS)
+        return has_weapon and has_damage
+    if event_type == EVENT_TYPE_GRENADE:
+        return any(column in available for column in WEAPON_COLUMNS)
+
+    return True
 
 
 def build_map_lookup(source_files: list[tuple[str, Path]]) -> dict[tuple[str, str], str]:
@@ -144,55 +222,88 @@ def build_map_lookup(source_files: list[tuple[str, Path]]) -> dict[tuple[str, st
 def project_row(
     row: dict[str, str | None],
     map_lookup: dict[tuple[str, str], str],
+    *,
+    event_type: str,
+    source_file: str,
 ) -> tuple[dict[str, str], str | None]:
     file_value = clean_cell(row.get("file"))
     round_value = clean_cell(row.get("round"))
-    weapon_value = clean_cell(row.get("wp")) or clean_cell(row.get("nade"))
+    map_value = clean_cell(row.get("map"))
+    wp_value = clean_cell(row.get("wp"))
+    nade_value = clean_cell(row.get("nade"))
+    weapon_value = wp_value or nade_value
     hp_dmg_value = clean_cell(row.get("hp_dmg"))
     arm_dmg_value = clean_cell(row.get("arm_dmg"))
-    map_value = clean_cell(row.get("map"))
 
     if not map_value and file_value and round_value:
         map_value = map_lookup.get((file_value, round_value))
 
-    raw_positions = {column: clean_cell(row.get(column)) for column in POSITION_COLUMNS}
-
     if not file_value or not round_value:
         return {}, "missing_required_fields"
-    if any(raw_positions[column] is None for column in POSITION_COLUMNS):
-        return {}, "missing_required_fields"
-    if not weapon_value:
-        return {}, "missing_weapon"
     if not map_value:
         return {}, "missing_map"
-    if not hp_dmg_value and not arm_dmg_value:
+
+    if event_type in {EVENT_TYPE_DAMAGE, EVENT_TYPE_GRENADE, EVENT_TYPE_KILL} and not weapon_value:
+        return {}, "missing_weapon"
+    if event_type == EVENT_TYPE_DAMAGE and not hp_dmg_value and not arm_dmg_value:
         return {}, "missing_damage"
 
-    normalized_positions: dict[str, str] = {}
-    try:
-        for column in POSITION_COLUMNS:
-            value = raw_positions[column]
-            if value is None:
-                return {}, "missing_required_fields"
+    normalized_positions = {column: "" for column in POSITION_COLUMNS}
+    for column in POSITION_COLUMNS:
+        value = clean_cell(row.get(column))
+        if value is None:
+            continue
+        try:
             normalized_positions[column] = normalize_finite_numeric(value)
-    except ValueError:
-        return {}, "invalid_position"
+        except ValueError:
+            return {}, "invalid_position"
 
-    return (
+    projected = {column: "" for column in GOLD_COLUMNS}
+    projected.update(
         {
             "file": file_value,
             "round": round_value,
             "map": map_value,
-            "weapon": weapon_value,
+            "weapon": weapon_value or "",
             "hp_dmg": hp_dmg_value or "",
             "arm_dmg": arm_dmg_value or "",
             "att_pos_x": normalized_positions["att_pos_x"],
             "att_pos_y": normalized_positions["att_pos_y"],
             "vic_pos_x": normalized_positions["vic_pos_x"],
             "vic_pos_y": normalized_positions["vic_pos_y"],
-        },
-        None,
+            "event_type": event_type,
+            "source_file": source_file,
+            "tick": clean_cell(row.get("tick")) or "",
+            "seconds": clean_cell(row.get("seconds")) or "",
+            "start_seconds": clean_cell(row.get("start_seconds")) or "",
+            "end_seconds": clean_cell(row.get("end_seconds")) or "",
+            "att_team": clean_cell(row.get("att_team")) or "",
+            "vic_team": clean_cell(row.get("vic_team")) or "",
+            "att_side": clean_cell(row.get("att_side")) or "",
+            "vic_side": clean_cell(row.get("vic_side")) or "",
+            "wp_type": clean_cell(row.get("wp_type")) or "",
+            "nade": nade_value or "",
+            "hitbox": clean_cell(row.get("hitbox")) or "",
+            "bomb_site": clean_cell(row.get("bomb_site")) or "",
+            "is_bomb_planted": clean_cell(row.get("is_bomb_planted")) or "",
+            "att_id": clean_cell(row.get("att_id")) or "",
+            "vic_id": clean_cell(row.get("vic_id")) or "",
+            "att_rank": clean_cell(row.get("att_rank")) or "",
+            "vic_rank": clean_cell(row.get("vic_rank")) or "",
+            "winner_team": clean_cell(row.get("winner_team")) or "",
+            "winner_side": clean_cell(row.get("winner_side")) or "",
+            "round_type": clean_cell(row.get("round_type")) or "",
+            "ct_eq_val": clean_cell(row.get("ct_eq_val")) or "",
+            "t_eq_val": clean_cell(row.get("t_eq_val")) or "",
+            "ct_alive": clean_cell(row.get("ct_alive")) or "",
+            "t_alive": clean_cell(row.get("t_alive")) or "",
+            "nade_land_x": clean_cell(row.get("nade_land_x")) or "",
+            "nade_land_y": clean_cell(row.get("nade_land_y")) or "",
+            "avg_match_rank": clean_cell(row.get("avg_match_rank")) or "",
+        }
     )
+
+    return projected, None
 
 
 def ensure_bucket(client: Minio, bucket_name: str) -> None:
@@ -240,16 +351,16 @@ def run_gold_transform(
 
     with tempfile.TemporaryDirectory(prefix="gold-transform-") as temp_dir:
         temp_path = Path(temp_dir)
-        local_sources: list[tuple[str, Path]] = []
+        local_sources: list[tuple[str, str, Path]] = []
 
         for source_object in source_objects:
             relative_path = source_object[len(source_prefix) :]
             source_file = temp_path / "in" / relative_path
             source_file.parent.mkdir(parents=True, exist_ok=True)
             client.fget_object(settings.silver_bucket, source_object, str(source_file))
-            local_sources.append((source_object, source_file))
+            local_sources.append((source_object, relative_path, source_file))
 
-        map_lookup = build_map_lookup(local_sources)
+        map_lookup = build_map_lookup([(source_object, source_file) for source_object, _, source_file in local_sources])
 
         events_file = temp_path / "out" / "events.csv"
         events_file.parent.mkdir(parents=True, exist_ok=True)
@@ -258,25 +369,15 @@ def run_gold_transform(
             writer = csv.DictWriter(output_file, fieldnames=GOLD_COLUMNS)
             writer.writeheader()
 
-            for source_object, source_file in local_sources:
-                metrics = GoldFileQualityMetrics(
-                    source_object=source_object,
-                    rows_read=0,
-                    rows_output=0,
-                    missing_weapon=0,
-                    missing_map=0,
-                    missing_damage=0,
-                    invalid_position=0,
-                    missing_required_fields=0,
-                    schema_incompatible_file=0,
-                )
-
+            for source_object, relative_path, source_file in local_sources:
                 with source_file.open("r", newline="", encoding="utf-8-sig", errors="replace") as csv_file:
                     reader = csv.DictReader(csv_file)
                     fieldnames = list(reader.fieldnames or [])
-                    if not has_minimum_projection_columns(fieldnames):
+                    event_type = infer_event_type(source_object, fieldnames)
+                    if not has_minimum_projection_columns(fieldnames, event_type):
                         metrics = GoldFileQualityMetrics(
                             source_object=source_object,
+                            event_type=event_type,
                             rows_read=0,
                             rows_output=0,
                             missing_weapon=0,
@@ -296,7 +397,12 @@ def run_gold_transform(
 
                     for row in reader:
                         rows_read += 1
-                        projected, reason = project_row(row, map_lookup)
+                        projected, reason = project_row(
+                            row,
+                            map_lookup,
+                            event_type=event_type,
+                            source_file=relative_path,
+                        )
                         if reason is not None:
                             reason_counts[reason] += 1
                             continue
@@ -306,6 +412,7 @@ def run_gold_transform(
 
                     metrics = GoldFileQualityMetrics(
                         source_object=source_object,
+                        event_type=event_type,
                         rows_read=rows_read,
                         rows_output=rows_output,
                         missing_weapon=reason_counts["missing_weapon"],

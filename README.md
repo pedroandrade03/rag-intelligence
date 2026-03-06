@@ -328,9 +328,15 @@ As regras aplicadas incluem normalização de colunas, trim de texto, remoção 
 
 ## Objetivo
 
-Consolidar os CSVs da Silver em um dataset Gold único com schema canônico para análise:
+Consolidar os CSVs da Silver em um dataset Gold único com schema canônico para análise, mantendo compatibilidade com a v1 e adicionando contexto de evento.
+
+Colunas base (compatíveis com a versão anterior):
 
 `file, round, map, weapon, hp_dmg, arm_dmg, att_pos_x, att_pos_y, vic_pos_x, vic_pos_y`
+
+Colunas extras:
+
+`event_type, source_file, tick, seconds, start_seconds, end_seconds, att_team, vic_team, att_side, vic_side, wp_type, nade, hitbox, bomb_site, is_bomb_planted, att_id, vic_id, att_rank, vic_rank, winner_team, winner_side, round_type, ct_eq_val, t_eq_val, ct_alive, t_alive, nade_land_x, nade_land_y, avg_match_rank`
 
 ## Pré-requisito
 
@@ -367,7 +373,7 @@ Verifique no MinIO:
 - dataset consolidado em `gold/<dataset_prefix>/<run_id>/curated/events.csv`
 - relatório de qualidade em `gold/<dataset_prefix>/<run_id>/quality_report.json`
 
-O pipeline aplica fallback de arma (`wp` -> `nade`), enriquecimento de mapa por (`file`, `round`), exige dano (`hp_dmg` ou `arm_dmg`) e posições do atacante/vítima numéricas e finitas.
+O pipeline aplica `event_type` por tipo de arquivo, fallback de arma (`wp` -> `nade`), enriquecimento de mapa por (`file`, `round`), mantém posição da vítima opcional e valida como numéricas finitas as posições que estiverem preenchidas.
 
 # Epic 1 — Preparação de Dados de Partidas
 
