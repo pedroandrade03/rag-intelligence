@@ -21,7 +21,7 @@ def main() -> int:
     except ConfigError as exc:
         logging.error("%s", exc)
         return 2
-    except Exception as exc:  # pragma: no cover - integration failure path
+    except Exception as exc:
         logging.exception("Bronze import failed: %s", exc)
         return 1
 
