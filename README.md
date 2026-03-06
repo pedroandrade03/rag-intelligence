@@ -1,15 +1,15 @@
 # RAG INTELLIGENCE
 
-Pedro Henrique Andrade Siqueira - RA222471
-Enzo Cambraia - 223335
-Lucas Siqueira Gonçalves - 212138
-Tales Augusto Sartório Furlan - 212170
-João Vitor Wenceslau Campagnin - 222225
-José Antonio Classio Jr - 223663
-Thiago de Lima Santos- 223628
-Enzo Murat Aires de Alencar - 212189
-Luis Augusto Machado Oliveira - 223360
-Gustavo Sinto Botejara - 223257
+- Pedro Henrique Andrade Siqueira - RA222471
+- Enzo Cambraia - 223335
+- Lucas Siqueira Gonçalves - 212138
+- Tales Augusto Sartório Furlan - 212170
+- João Vitor Wenceslau Campagnin - 222225
+- José Antonio Classio Jr - 223663
+- Thiago de Lima Santos- 223628
+- Enzo Murat Aires de Alencar - 212189
+- Luis Augusto Machado Oliveira - 223360
+- Gustavo Sinto Botejara - 223257
 
 # Product Backlog — CS:GO Analytics AI
 
