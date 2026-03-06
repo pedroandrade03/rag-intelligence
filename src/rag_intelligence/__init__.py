@@ -1,2 +1,1 @@
 """RAG Intelligence ingestion package."""
-

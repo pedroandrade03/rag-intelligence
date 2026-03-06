@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 
 
 class SettingsError(ValueError):
@@ -41,6 +41,11 @@ class AppSettings:
     # API server
     api_host: str
     api_port: int
+    cors_origins: tuple[str, ...]
+
+    # Logging
+    log_level: str
+    log_json: bool | None
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> AppSettings:
@@ -67,6 +72,9 @@ class AppSettings:
             default_embed_model=raw.get("DEFAULT_EMBED_MODEL", "ollama/nomic-embed"),
             api_host=raw.get("API_HOST", "0.0.0.0"),
             api_port=_parse_int(raw, "API_PORT", 8000),
+            cors_origins=_parse_cors_origins(raw.get("CORS_ORIGINS", "*")),
+            log_level=raw.get("LOG_LEVEL", "INFO").strip().upper(),
+            log_json=_parse_optional_bool(raw.get("LOG_JSON", "")),
         )
 
 
@@ -76,8 +84,8 @@ def _parse_int(env: dict[str, str], key: str, default: int) -> int:
         return default
     try:
         return int(raw)
-    except ValueError:
-        raise SettingsError(f"Invalid integer for {key}: {raw}")
+    except ValueError as err:
+        raise SettingsError(f"Invalid integer for {key}: {raw}") from err
 
 
 def _parse_bool(value: str) -> bool:
@@ -87,3 +95,18 @@ def _parse_bool(value: str) -> bool:
     if normalized in {"0", "false", "no", "off", ""}:
         return False
     raise SettingsError(f"Invalid boolean value: {value}")
+
+
+def _parse_optional_bool(value: str) -> bool | None:
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise SettingsError(f"Invalid boolean value: {value}")
+
+
+def _parse_cors_origins(value: str) -> tuple[str, ...]:
+    return tuple(origin.strip() for origin in value.split(",") if origin.strip())

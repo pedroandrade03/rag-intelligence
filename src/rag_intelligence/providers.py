@@ -46,7 +46,9 @@ class ProviderRegistry:
         try:
             model = self._build_embed(key)
         except (ValueError, ImportError, ConnectionError, RuntimeError):
-            LOGGER.warning("Failed to init embedding '%s', falling back to Ollama", key, exc_info=True)
+            LOGGER.warning(
+                "Failed to init embedding '%s', falling back to Ollama", key, exc_info=True
+            )
             model = self._build_embed(OLLAMA_EMBED_FALLBACK)
             key = OLLAMA_EMBED_FALLBACK
 
@@ -72,22 +74,30 @@ class ProviderRegistry:
     def _build_llm(self, key: str) -> LLM:
         if key == "gpt-4o":
             from llama_index.llms.openai import OpenAI
+
             return OpenAI(model="gpt-4o", api_key=self._settings.openai_api_key)
 
         if key == "claude-sonnet":
             from llama_index.llms.anthropic import Anthropic
-            return Anthropic(model="claude-sonnet-4-20250514", api_key=self._settings.anthropic_api_key)
+
+            return Anthropic(
+                model="claude-sonnet-4-20250514", api_key=self._settings.anthropic_api_key
+            )
 
         if key.startswith("ollama/"):
             from llama_index.llms.ollama import Ollama
+
             model_name = key.removeprefix("ollama/")
-            return Ollama(model=model_name, base_url=self._settings.ollama_base_url, request_timeout=120.0)
+            return Ollama(
+                model=model_name, base_url=self._settings.ollama_base_url, request_timeout=120.0
+            )
 
         raise ValueError(f"Unknown LLM provider: {key}")
 
     def _build_embed(self, key: str) -> BaseEmbedding:
         if key == "text-embedding-3-small":
             from llama_index.embeddings.openai import OpenAIEmbedding
+
             return OpenAIEmbedding(
                 model_name="text-embedding-3-small",
                 api_key=self._settings.openai_api_key,
@@ -96,6 +106,7 @@ class ProviderRegistry:
 
         if key == "voyage-3":
             from llama_index.embeddings.voyageai import VoyageEmbedding
+
             return VoyageEmbedding(
                 model_name="voyage-3",
                 voyage_api_key=self._settings.voyage_api_key,
@@ -103,6 +114,7 @@ class ProviderRegistry:
 
         if key.startswith("ollama/"):
             from llama_index.embeddings.ollama import OllamaEmbedding
+
             model_name = key.removeprefix("ollama/")
             return OllamaEmbedding(model_name=model_name, base_url=self._settings.ollama_base_url)
 

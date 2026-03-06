@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q api up down logs bronze ollama-pull clean
+.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze ollama-pull clean
 
 .DEFAULT_GOAL := help
 
@@ -19,6 +19,17 @@ test: ## Run tests (verbose)
 
 test-q: ## Run tests (quiet)
 	. .venv/bin/activate && python -m pytest tests/ -q
+
+lint: ## Run ruff linter
+	ruff check src/ tests/
+
+fmt: ## Run ruff formatter (writes changes)
+	ruff format src/ tests/
+
+typecheck: ## Run pyright type checker
+	pyright --pythonpath .venv/bin/python src/
+
+ci: lint typecheck test ## Run full CI check locally (lint + types + tests)
 
 api: ## Run API locally with hot reload
 	. .venv/bin/activate && uvicorn rag_intelligence.api.main:app --reload --port 8000

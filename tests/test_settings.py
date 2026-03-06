@@ -85,3 +85,47 @@ def test_settings_is_frozen():
 
     with pytest.raises(AttributeError):
         settings.pg_host = "other"  # type: ignore[misc]
+
+
+def test_cors_origins_default_is_wildcard():
+    settings = AppSettings.from_env({})
+    assert settings.cors_origins == ("*",)
+
+
+def test_cors_origins_parsed_from_comma_separated():
+    env = base_env()
+    env["CORS_ORIGINS"] = "http://localhost:3000, https://example.com"
+    settings = AppSettings.from_env(env)
+
+    assert settings.cors_origins == ("http://localhost:3000", "https://example.com")
+
+
+def test_log_level_default_is_info():
+    settings = AppSettings.from_env({})
+    assert settings.log_level == "INFO"
+
+
+def test_log_level_uppercased():
+    env = base_env()
+    env["LOG_LEVEL"] = "debug"
+    settings = AppSettings.from_env(env)
+    assert settings.log_level == "DEBUG"
+
+
+def test_log_json_default_is_none():
+    settings = AppSettings.from_env({})
+    assert settings.log_json is None
+
+
+def test_log_json_explicit_true():
+    env = base_env()
+    env["LOG_JSON"] = "true"
+    settings = AppSettings.from_env(env)
+    assert settings.log_json is True
+
+
+def test_log_json_explicit_false():
+    env = base_env()
+    env["LOG_JSON"] = "false"
+    settings = AppSettings.from_env(env)
+    assert settings.log_json is False

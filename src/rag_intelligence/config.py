@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 import os
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 
 class ConfigError(ValueError):
@@ -22,7 +22,7 @@ class Settings:
     run_id: str
 
     @classmethod
-    def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
+    def from_env(cls, env: dict[str, str] | None = None) -> Settings:
         raw_env = dict(os.environ if env is None else env)
 
         minio_endpoint = require_env(raw_env, "MINIO_ENDPOINT")
@@ -67,7 +67,7 @@ def parse_bool(value: str) -> bool:
 
 
 def default_run_id(now: datetime | None = None) -> str:
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     return current.strftime("%Y%m%dT%H%M%SZ")
 
 
