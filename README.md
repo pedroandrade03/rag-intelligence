@@ -1,6 +1,6 @@
 # RAG INTELLIGENCE
 
-- Pedro Henrique Andrade Siqueira - RA222471
+- Pedro Henrique Andrade Siqueira - 222471
 - Enzo Cambraia - 223335
 - Lucas Siqueira Gonçalves - 212138
 - Tales Augusto Sartório Furlan - 212170
