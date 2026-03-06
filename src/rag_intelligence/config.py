@@ -50,6 +50,50 @@ class Settings:
         )
 
 
+@dataclass(frozen=True)
+class SilverSettings:
+    minio_endpoint: str
+    minio_access_key: str
+    minio_secret_key: str
+    minio_secure: bool
+    bronze_bucket: str
+    silver_bucket: str
+    bronze_dataset_prefix: str
+    silver_dataset_prefix: str
+    bronze_source_run_id: str
+    silver_run_id: str
+
+    @classmethod
+    def from_env(cls, env: dict[str, str] | None = None) -> SilverSettings:
+        raw_env = dict(os.environ if env is None else env)
+
+        minio_endpoint = require_env(raw_env, "MINIO_ENDPOINT")
+        minio_access_key = require_env(raw_env, "MINIO_ACCESS_KEY")
+        minio_secret_key = require_env(raw_env, "MINIO_SECRET_KEY")
+        bronze_bucket = require_env(raw_env, "MINIO_BUCKET")
+        bronze_dataset_prefix = require_env(raw_env, "BRONZE_DATASET_PREFIX")
+        bronze_source_run_id = require_env(raw_env, "BRONZE_SOURCE_RUN_ID")
+
+        silver_bucket = raw_env.get("SILVER_BUCKET", "silver").strip() or "silver"
+        silver_dataset_prefix = (
+            raw_env.get("SILVER_DATASET_PREFIX", "").strip() or bronze_dataset_prefix
+        )
+        silver_run_id = raw_env.get("SILVER_RUN_ID", "").strip() or bronze_source_run_id
+
+        return cls(
+            minio_endpoint=minio_endpoint,
+            minio_access_key=minio_access_key,
+            minio_secret_key=minio_secret_key,
+            minio_secure=parse_bool(raw_env.get("MINIO_SECURE", "false")),
+            bronze_bucket=bronze_bucket,
+            silver_bucket=silver_bucket,
+            bronze_dataset_prefix=bronze_dataset_prefix,
+            silver_dataset_prefix=silver_dataset_prefix,
+            bronze_source_run_id=bronze_source_run_id,
+            silver_run_id=silver_run_id,
+        )
+
+
 def require_env(env: dict[str, str], key: str) -> str:
     value = env.get(key, "").strip()
     if not value:

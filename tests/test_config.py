@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from rag_intelligence.config import ConfigError, Settings, default_run_id
+from rag_intelligence.config import ConfigError, Settings, SilverSettings, default_run_id
 from rag_intelligence.ingest import build_object_key
 
 
@@ -55,3 +55,25 @@ def test_build_object_key_uses_versioned_prefix() -> None:
         )
         == "csgo-matchmaking-damage/20260306T010203Z/extracted/mm_master_demos.csv"
     )
+
+
+def test_silver_settings_require_bronze_source_run_id() -> None:
+    env = base_env()
+    env["BRONZE_SOURCE_RUN_ID"] = ""
+
+    with pytest.raises(ConfigError, match="BRONZE_SOURCE_RUN_ID"):
+        SilverSettings.from_env(env)
+
+
+def test_silver_settings_use_expected_defaults() -> None:
+    env = base_env()
+    env["BRONZE_SOURCE_RUN_ID"] = "20260306T023831Z"
+
+    settings = SilverSettings.from_env(env)
+
+    assert settings.bronze_bucket == "bronze"
+    assert settings.silver_bucket == "silver"
+    assert settings.bronze_dataset_prefix == "csgo-matchmaking-damage"
+    assert settings.silver_dataset_prefix == "csgo-matchmaking-damage"
+    assert settings.bronze_source_run_id == "20260306T023831Z"
+    assert settings.silver_run_id == "20260306T023831Z"

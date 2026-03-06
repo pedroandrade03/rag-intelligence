@@ -281,6 +281,49 @@ Abra o console do MinIO em `http://localhost:9001` e confirme que o bucket `bron
 
 Os critérios mínimos de PB01 são atendidos quando o bucket Bronze contém o ZIP bruto e os arquivos extraídos `.csv`/`.png` da carga.
 
+# Implementação PB02
+
+## Objetivo
+
+Limpar e padronizar os CSVs da Bronze para gerar a camada Silver versionada por run.
+
+## Pré-requisito
+
+- Executar PB01 antes da PB02.
+- Definir `BRONZE_SOURCE_RUN_ID` com um run existente na Bronze.
+
+## Configuração
+
+Variáveis da PB02:
+
+- `SILVER_BUCKET=silver`
+- `SILVER_DATASET_PREFIX=` opcional; se vazio usa `BRONZE_DATASET_PREFIX`
+- `BRONZE_SOURCE_RUN_ID=` obrigatório
+- `SILVER_RUN_ID=` opcional; se vazio usa o valor de `BRONZE_SOURCE_RUN_ID`
+
+## Execução
+
+Via Docker Compose:
+
+```bash
+docker compose run --rm silver-transformer
+```
+
+Via Makefile:
+
+```bash
+make silver
+```
+
+## Validação
+
+Verifique no MinIO:
+
+- CSVs tratados em `silver/<dataset_prefix>/<run_id>/cleaned/`
+- relatório de qualidade em `silver/<dataset_prefix>/<run_id>/quality_report.json`
+
+As regras aplicadas incluem normalização de colunas, trim de texto, remoção de linhas totalmente nulas, remoção de duplicados e descarte de valores numéricos inválidos/negativos nas métricas conhecidas.
+
 # Epic 1 — Preparação de Dados de Partidas
 
 **Objetivo:** organizar e estruturar os dados de partidas de CS:GO.
