@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -230,6 +231,34 @@ def run_silver_transform(
             f"run_id={settings.bronze_source_run_id} under prefix={source_prefix}"
         )
 
+    def _process_file(source_object: str, temp_path: Path) -> tuple[str, dict[str, object]]:
+        relative_path = source_object[len(source_prefix) :]
+        source_file = temp_path / "in" / relative_path
+        target_file = temp_path / "out" / relative_path
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+
+        LOGGER.info("Processing %s", source_object)
+        client.fget_object(settings.bronze_bucket, source_object, str(source_file))
+        metrics = clean_csv_file(source_file, target_file)
+
+        target_object = build_silver_object_key(
+            settings.silver_dataset_prefix,
+            settings.silver_run_id,
+            relative_path,
+        )
+        client.fput_object(
+            bucket_name=settings.silver_bucket,
+            object_name=target_object,
+            file_path=str(target_file),
+            content_type="text/csv",
+        )
+        return target_object, {
+            "source_object": source_object,
+            "target_object": target_object,
+            **asdict(metrics),
+            "rows_removed": metrics.rows_removed,
+        }
+
     uploaded_objects: list[str] = []
     quality_files: list[dict[str, object]] = []
     total_rows_read = 0
@@ -238,38 +267,15 @@ def run_silver_transform(
     with tempfile.TemporaryDirectory(prefix="silver-transform-") as temp_dir:
         temp_path = Path(temp_dir)
 
-        for source_object in source_objects:
-            relative_path = source_object[len(source_prefix) :]
-            source_file = temp_path / "in" / relative_path
-            target_file = temp_path / "out" / relative_path
-            source_file.parent.mkdir(parents=True, exist_ok=True)
-
-            LOGGER.info("Processing %s", source_object)
-            client.fget_object(settings.bronze_bucket, source_object, str(source_file))
-            metrics = clean_csv_file(source_file, target_file)
-
-            target_object = build_silver_object_key(
-                settings.silver_dataset_prefix,
-                settings.silver_run_id,
-                relative_path,
-            )
-            client.fput_object(
-                bucket_name=settings.silver_bucket,
-                object_name=target_object,
-                file_path=str(target_file),
-                content_type="text/csv",
-            )
-            uploaded_objects.append(target_object)
-            total_rows_read += metrics.rows_read
-            total_rows_output += metrics.rows_output
-            quality_files.append(
-                {
-                    "source_object": source_object,
-                    "target_object": target_object,
-                    **asdict(metrics),
-                    "rows_removed": metrics.rows_removed,
-                }
-            )
+        max_workers = min(8, len(source_objects))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_process_file, obj, temp_path) for obj in source_objects]
+            for future in futures:
+                target_object, file_report = future.result()
+                uploaded_objects.append(target_object)
+                total_rows_read += file_report["rows_read"]  # type: ignore[operator]
+                total_rows_output += file_report["rows_output"]  # type: ignore[operator]
+                quality_files.append(file_report)
 
         quality_report = {
             "generated_at": datetime.now(UTC).isoformat(),
