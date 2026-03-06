@@ -26,7 +26,10 @@ def main() -> int:
         return 1
 
     logging.info(
-        "Gold transform finished successfully: files=%s rows_in=%s rows_out=%s events=%s report=%s",
+        (
+            "Gold transform finished successfully: "
+            "files=%s rows_in=%s rows_out=%s events=%s report=%s"
+        ),
         result.files_processed,
         result.rows_read,
         result.rows_output,

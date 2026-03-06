@@ -126,7 +126,9 @@ class GoldSettings:
                 "(or BRONZE_DATASET_PREFIX as fallback)"
             )
 
-        gold_dataset_prefix = raw_env.get("GOLD_DATASET_PREFIX", "").strip() or silver_dataset_prefix
+        gold_dataset_prefix = (
+            raw_env.get("GOLD_DATASET_PREFIX", "").strip() or silver_dataset_prefix
+        )
         silver_bucket = raw_env.get("SILVER_BUCKET", "silver").strip() or "silver"
         gold_bucket = raw_env.get("GOLD_BUCKET", "gold").strip() or "gold"
         gold_run_id = raw_env.get("GOLD_RUN_ID", "").strip() or silver_source_run_id
