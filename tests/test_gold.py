@@ -55,8 +55,7 @@ def test_infer_event_type_uses_file_hints() -> None:
         == EVENT_TYPE_KILL
     )
     assert (
-        infer_event_type("x/esea_meta_demos.part1.csv", ["file", "round"])
-        == EVENT_TYPE_ROUND_META
+        infer_event_type("x/esea_meta_demos.part1.csv", ["file", "round"]) == EVENT_TYPE_ROUND_META
     )
 
 
@@ -140,10 +139,7 @@ def test_run_gold_transform_processes_mixed_event_types_and_writes_quality_repor
                 b"file,round,tick,seconds,att_team,vic_team,att_side,vic_side,wp,wp_type,ct_alive,t_alive,is_bomb_planted\n"
                 b"demo_kill,1,100,12.3,A,B,t,ct,ak47,rifle,4,2,false\n"
             ),
-            f"{silver_prefix}/map_data.csv": (
-                b"column,endx,endy\n"
-                b"0,1,2\n"
-            ),
+            f"{silver_prefix}/map_data.csv": (b"column,endx,endy\n0,1,2\n"),
         }
     }
     fake_minio = FakeMinio(
