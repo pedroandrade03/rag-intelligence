@@ -1,0 +1,92 @@
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  timescaledb:
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_USER: ${PG_USER:-raguser}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      POSTGRES_DB: ${PG_DATABASE:-ragdb}
+    ports:
+      - "54330:5432"
+    volumes:
+      - tsdb-data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-raguser} -d ${PG_DATABASE:-ragdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  rag-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      ollama:
+        condition: service_started
+    environment:
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+      PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
+      PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-bronze}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      DEFAULT_LLM: ${DEFAULT_LLM:-ollama/qwen2.5}
+      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed}
+
+  bronze-importer:
+    build:
+      context: .
+    profiles:
+      - jobs
+    depends_on:
+      - minio
+    environment:
+      MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-bronze}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      KAGGLE_USERNAME: ${KAGGLE_USERNAME:-}
+      KAGGLE_KEY: ${KAGGLE_KEY:-}
+      BRONZE_DATASET_SLUG: ${BRONZE_DATASET_SLUG:-skihikingkevin/csgo-matchmaking-damage}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      BRONZE_RUN_ID: ${BRONZE_RUN_ID:-}
+
+volumes:
+  minio-data:
+  tsdb-data:
+  ollama-data:
