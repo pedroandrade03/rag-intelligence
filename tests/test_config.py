@@ -47,6 +47,11 @@ def test_default_run_id_uses_versioned_timestamp_format() -> None:
 
 def test_build_object_key_uses_versioned_prefix() -> None:
     assert (
-        build_object_key("csgo-matchmaking-damage", "20260306T010203Z", "mm_master_demos.csv", section="extracted")
+        build_object_key(
+            "csgo-matchmaking-damage",
+            "20260306T010203Z",
+            "mm_master_demos.csv",
+            section="extracted",
+        )
         == "csgo-matchmaking-damage/20260306T010203Z/extracted/mm_master_demos.csv"
     )

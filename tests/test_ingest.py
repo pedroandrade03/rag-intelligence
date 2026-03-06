@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import zipfile
+from pathlib import Path
 
 from rag_intelligence.config import Settings
 from rag_intelligence.ingest import iter_dataset_assets, run_import

@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import mimetypes
-from pathlib import Path
 import tempfile
-from typing import Iterable
 import zipfile
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
 
 from minio import Minio
 
 from rag_intelligence.config import Settings
-
 
 LOGGER = logging.getLogger(__name__)
 EXTRACTED_SUFFIXES = {".csv", ".png"}
@@ -44,9 +43,7 @@ def resolve_downloaded_archive(download_dir: Path, dataset_slug: str) -> Path:
     if len(zip_files) == 1:
         return zip_files[0]
 
-    raise FileNotFoundError(
-        f"Unable to locate the downloaded dataset archive in {download_dir}."
-    )
+    raise FileNotFoundError(f"Unable to locate the downloaded dataset archive in {download_dir}.")
 
 
 def download_dataset_archive(dataset_slug: str, destination: Path, api_factory=None) -> Path:
@@ -88,7 +85,9 @@ def upload_file(client: Minio, bucket_name: str, item: UploadItem) -> None:
     )
 
 
-def build_upload_manifest(settings: Settings, archive_path: Path, extracted_dir: Path) -> list[UploadItem]:
+def build_upload_manifest(
+    settings: Settings, archive_path: Path, extracted_dir: Path
+) -> list[UploadItem]:
     manifest = [
         UploadItem(
             source_path=archive_path,
