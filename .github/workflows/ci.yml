@@ -19,8 +19,8 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
-      - name: Install dependencies
-        run: uv pip install -e ".[dev]" --system
+      - name: Create venv and install dependencies
+        run: uv venv --python 3.13 && uv pip install -e ".[dev]"
 
       - name: Ruff lint
         run: uvx ruff check src/ tests/
@@ -29,7 +29,7 @@ jobs:
         run: uvx ruff format --check src/ tests/
 
       - name: Pyright
-        run: uvx pyright src/
+        run: uvx pyright --pythonpath .venv/bin/python src/
 
       - name: Tests
-        run: python -m pytest tests/ -v
+        run: .venv/bin/python -m pytest tests/ -v
