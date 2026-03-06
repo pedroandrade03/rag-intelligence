@@ -14,6 +14,8 @@ services:
   bronze-importer:
     build:
       context: .
+    profiles:
+      - jobs
     depends_on:
       - minio
     environment:

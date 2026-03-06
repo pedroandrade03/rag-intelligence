@@ -67,11 +67,13 @@ Variáveis principais:
 
 ## Execução com Docker Compose
 
-Suba o MinIO:
+Suba a stack base:
 
 ```bash
-docker compose up -d minio
+docker compose up -d
 ```
+
+O `bronze-importer` fica em um profile manual, então `docker compose up` não executa a ingestão novamente.
 
 Execute a importação:
 
