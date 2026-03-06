@@ -40,6 +40,7 @@ dev = [
 [project.scripts]
 bronze-import = "rag_intelligence.cli:main"
 silver-transform = "rag_intelligence.silver_cli:main"
+gold-transform = "rag_intelligence.gold_cli:main"
 rag-api = "rag_intelligence.api.main:run"
 
 [tool.setuptools]

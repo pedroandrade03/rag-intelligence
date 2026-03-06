@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver ollama-pull clean
+.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver gold ollama-pull clean
 
 .DEFAULT_GOAL := help
 
@@ -48,6 +48,9 @@ bronze: ## Run bronze importer job
 
 silver: ## Run silver transformer job
 	docker compose run --rm silver-transformer
+
+gold: ## Run gold transformer job
+	docker compose run --rm gold-transformer
 
 ollama-pull: ## Pull Ollama models (inference + embedding)
 	docker exec -it $$(docker compose ps -q ollama) ollama pull qwen2.5:7b-instruct

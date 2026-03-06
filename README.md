@@ -324,6 +324,51 @@ Verifique no MinIO:
 
 As regras aplicadas incluem normalização de colunas, trim de texto, remoção de linhas totalmente nulas, remoção de duplicados e descarte de valores numéricos inválidos/negativos nas métricas conhecidas.
 
+# Implementação PB03
+
+## Objetivo
+
+Consolidar os CSVs da Silver em um dataset Gold único com schema canônico para análise:
+
+`file, round, map, weapon, hp_dmg, arm_dmg, att_pos_x, att_pos_y, vic_pos_x, vic_pos_y`
+
+## Pré-requisito
+
+- Executar PB02 antes da PB03.
+- Definir `SILVER_SOURCE_RUN_ID` com um run existente na Silver.
+
+## Configuração
+
+Variáveis da PB03:
+
+- `SILVER_SOURCE_RUN_ID=` obrigatório
+- `GOLD_BUCKET=gold`
+- `GOLD_DATASET_PREFIX=` opcional; se vazio usa `SILVER_DATASET_PREFIX` e depois `BRONZE_DATASET_PREFIX`
+- `GOLD_RUN_ID=` opcional; se vazio usa `SILVER_SOURCE_RUN_ID`
+
+## Execução
+
+Via Docker Compose:
+
+```bash
+docker compose run --rm gold-transformer
+```
+
+Via Makefile:
+
+```bash
+make gold
+```
+
+## Validação
+
+Verifique no MinIO:
+
+- dataset consolidado em `gold/<dataset_prefix>/<run_id>/curated/events.csv`
+- relatório de qualidade em `gold/<dataset_prefix>/<run_id>/quality_report.json`
+
+O pipeline aplica fallback de arma (`wp` -> `nade`), enriquecimento de mapa por (`file`, `round`), exige dano (`hp_dmg` ou `arm_dmg`) e posições do atacante/vítima numéricas e finitas.
+
 # Epic 1 — Preparação de Dados de Partidas
 
 **Objetivo:** organizar e estruturar os dados de partidas de CS:GO.
