@@ -6,6 +6,23 @@ import sys
 import structlog
 
 
+def _add_otel_context(
+    _logger: object, _method_name: str, event_dict: structlog.types.EventDict
+) -> structlog.types.EventDict:
+    """Inject OpenTelemetry trace_id / span_id into every log event."""
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        ctx = span.get_span_context()
+        if ctx and ctx.is_valid:
+            event_dict["trace_id"] = format(ctx.trace_id, "032x")
+            event_dict["span_id"] = format(ctx.span_id, "016x")
+    except Exception:
+        pass
+    return event_dict
+
+
 def setup_logging(*, log_level: str = "INFO", json_logs: bool | None = None) -> None:
     """Configure structured logging for the application.
 
@@ -17,6 +34,7 @@ def setup_logging(*, log_level: str = "INFO", json_logs: bool | None = None) -> 
 
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
+        _add_otel_context,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),

@@ -24,6 +24,9 @@ async def lifespan(app: FastAPI):
     registry = ProviderRegistry(settings)
     app.state.registry = registry
 
+    if settings.otel_enabled:
+        LOGGER.info("OpenTelemetry enabled (endpoint=%s)", settings.otel_endpoint)
+
     LOGGER.info("RAG Intelligence API started (default_llm=%s)", settings.default_llm)
     yield
     LOGGER.info("RAG Intelligence API shutting down")
@@ -32,8 +35,23 @@ async def lifespan(app: FastAPI):
 def create_app(settings: AppSettings | None = None) -> FastAPI:
     settings = settings or AppSettings.from_env()
 
+    # OTEL must be initialised BEFORE the app is created so that
+    # FastAPIInstrumentor can wrap middleware at the right layer.
+    if settings.otel_enabled:
+        from rag_intelligence.telemetry import setup_telemetry
+
+        setup_telemetry(
+            service_name="rag-intelligence",
+            otel_endpoint=settings.otel_endpoint,
+        )
+
     app = FastAPI(title="RAG Intelligence", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
+
+    if settings.otel_enabled:
+        from rag_intelligence.telemetry import instrument_fastapi
+
+        instrument_fastapi(app)
 
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(

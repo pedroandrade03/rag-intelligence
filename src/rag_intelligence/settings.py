@@ -47,6 +47,10 @@ class AppSettings:
     log_level: str
     log_json: bool | None
 
+    # OpenTelemetry
+    otel_enabled: bool
+    otel_endpoint: str
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> AppSettings:
         raw = dict(os.environ if env is None else env)
@@ -75,6 +79,8 @@ class AppSettings:
             cors_origins=_parse_cors_origins(raw.get("CORS_ORIGINS", "*")),
             log_level=raw.get("LOG_LEVEL", "INFO").strip().upper(),
             log_json=_parse_optional_bool(raw.get("LOG_JSON", "")),
+            otel_enabled=_parse_bool(raw.get("OTEL_ENABLED", "false")),
+            otel_endpoint=raw.get("OTEL_ENDPOINT", "http://localhost:4318"),
         )
 
 
