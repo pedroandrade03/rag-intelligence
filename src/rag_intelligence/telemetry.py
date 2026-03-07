@@ -31,9 +31,7 @@ def setup_telemetry(
     )
     instrumentor.start_registering()
 
-    LOGGER.info(
-        "OpenTelemetry + LlamaIndex tracing enabled (endpoint=%s)", otel_endpoint
-    )
+    LOGGER.info("OpenTelemetry + LlamaIndex tracing enabled (endpoint=%s)", otel_endpoint)
 
 
 def instrument_fastapi(app: FastAPI) -> None:

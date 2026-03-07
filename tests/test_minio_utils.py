@@ -31,8 +31,6 @@ class TestEnsureBucket:
         assert "bronze" in client.buckets
 
     def test_skips_when_bucket_exists(self):
-        client = FakeMinio(
-            "localhost:9000", "key", "secret", False, existing_buckets={"bronze"}
-        )
+        client = FakeMinio("localhost:9000", "key", "secret", False, existing_buckets={"bronze"})
         ensure_bucket(client, "bronze")  # type: ignore[arg-type]
         assert "bronze" in client.buckets

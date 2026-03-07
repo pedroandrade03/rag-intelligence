@@ -121,24 +121,26 @@ class TestGetLatestRun:
     def test_returns_record_when_exists(self) -> None:
         created = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC)
         cursor = FakeCursor()
-        cursor.set_result([
-            (
-                42,
-                "20250115T120000Z",
-                "gold",
-                "completed",
-                "csgo",
-                "gold",
-                "src-run",
-                "events.parquet",
-                "quality_report.json",
-                3,
-                1000,
-                950,
-                json.dumps({"missing_weapon": 10}),
-                created,
-            )
-        ])
+        cursor.set_result(
+            [
+                (
+                    42,
+                    "20250115T120000Z",
+                    "gold",
+                    "completed",
+                    "csgo",
+                    "gold",
+                    "src-run",
+                    "events.parquet",
+                    "quality_report.json",
+                    3,
+                    1000,
+                    950,
+                    json.dumps({"missing_weapon": 10}),
+                    created,
+                )
+            ]
+        )
         conn = FakeConnection(cursor=cursor)
 
         result = get_latest_run(_make_settings(), "gold", conn_factory=lambda _s: conn)
@@ -158,15 +160,26 @@ class TestGetLatestRun:
 
     def test_handles_dict_quality_summary(self) -> None:
         cursor = FakeCursor()
-        cursor.set_result([
-            (
-                1, "r1", "silver", "completed", "ds", "silver",
-                None, None, "qr.json",
-                1, 100, 90,
-                {"dup": 5},
-                datetime.now(tz=UTC),
-            )
-        ])
+        cursor.set_result(
+            [
+                (
+                    1,
+                    "r1",
+                    "silver",
+                    "completed",
+                    "ds",
+                    "silver",
+                    None,
+                    None,
+                    "qr.json",
+                    1,
+                    100,
+                    90,
+                    {"dup": 5},
+                    datetime.now(tz=UTC),
+                )
+            ]
+        )
         conn = FakeConnection(cursor=cursor)
         result = get_latest_run(_make_settings(), "silver", conn_factory=lambda _s: conn)
         assert result is not None
