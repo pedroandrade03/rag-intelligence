@@ -202,7 +202,10 @@ def test_embedding_settings_use_expected_defaults() -> None:
     assert settings.document_source_run_id == "20260308T180500Z"
     assert settings.embedding_run_id == "20260308T180500Z"
     assert settings.embedding_batch_size == 256
+    assert settings.embedding_num_workers == 4
+    assert settings.embedding_parallel_batches == 4
     assert settings.embedding_max_documents is None
+    assert settings.embedding_resume is False
 
 
 def test_embedding_settings_support_overrides() -> None:
@@ -214,7 +217,10 @@ def test_embedding_settings_support_overrides() -> None:
     env["EMBEDDING_DATASET_PREFIX"] = "embeddings-prefix"
     env["EMBEDDING_RUN_ID"] = "20260308T181000Z"
     env["EMBEDDING_BATCH_SIZE"] = "32"
+    env["EMBEDDING_NUM_WORKERS"] = "8"
+    env["EMBEDDING_PARALLEL_BATCHES"] = "6"
     env["EMBEDDING_MAX_DOCUMENTS"] = "64"
+    env["EMBEDDING_RESUME"] = "true"
 
     settings = EmbeddingSettings.from_env(env)
 
@@ -224,7 +230,10 @@ def test_embedding_settings_support_overrides() -> None:
     assert settings.embedding_dataset_prefix == "embeddings-prefix"
     assert settings.embedding_run_id == "20260308T181000Z"
     assert settings.embedding_batch_size == 32
+    assert settings.embedding_num_workers == 8
+    assert settings.embedding_parallel_batches == 6
     assert settings.embedding_max_documents == 64
+    assert settings.embedding_resume is True
 
 
 def test_embedding_settings_require_positive_batch_size() -> None:
@@ -233,6 +242,33 @@ def test_embedding_settings_require_positive_batch_size() -> None:
     env["EMBEDDING_BATCH_SIZE"] = "0"
 
     with pytest.raises(ConfigError, match="greater than zero"):
+        EmbeddingSettings.from_env(env)
+
+
+def test_embedding_settings_require_positive_num_workers() -> None:
+    env = base_env()
+    env["DOCUMENT_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["EMBEDDING_NUM_WORKERS"] = "0"
+
+    with pytest.raises(ConfigError, match="EMBEDDING_NUM_WORKERS must be greater than zero"):
+        EmbeddingSettings.from_env(env)
+
+
+def test_embedding_settings_require_positive_parallel_batches() -> None:
+    env = base_env()
+    env["DOCUMENT_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["EMBEDDING_PARALLEL_BATCHES"] = "0"
+
+    with pytest.raises(ConfigError, match="EMBEDDING_PARALLEL_BATCHES must be greater than zero"):
+        EmbeddingSettings.from_env(env)
+
+
+def test_embedding_settings_require_valid_resume_boolean() -> None:
+    env = base_env()
+    env["DOCUMENT_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["EMBEDDING_RESUME"] = "maybe"
+
+    with pytest.raises(ConfigError, match="EMBEDDING_RESUME"):
         EmbeddingSettings.from_env(env)
 
 

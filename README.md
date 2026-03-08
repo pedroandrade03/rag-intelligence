@@ -283,8 +283,11 @@ Variaveis da PB06:
 - `EMBEDDING_REPORT_BUCKET=` opcional; se vazio usa `DOCUMENT_BUCKET`
 - `EMBEDDING_DATASET_PREFIX=` opcional; se vazio usa `DOCUMENT_DATASET_PREFIX`
 - `EMBEDDING_BATCH_SIZE=256` opcional
+- `EMBEDDING_NUM_WORKERS=4` opcional; controla o paralelismo interno do `pipeline.run(...)`
+- `EMBEDDING_PARALLEL_BATCHES=4` opcional; controla quantos batches de embedding podem rodar em paralelo
 - `OLLAMA_EMBED_BATCH_SIZE=32` opcional; controla o batch real enviado ao Ollama e costuma impactar mais o throughput do que aumentar apenas `EMBEDDING_BATCH_SIZE`
 - `EMBEDDING_MAX_DOCUMENTS=` opcional; limita quantos documents do manifest serao indexados para smoke test
+- `EMBEDDING_RESUME=false` opcional; quando `true`, continua do maior `node_id` ja persistido para o `embedding_run_id`, sem apagar o progresso existente
 - `PG_TABLE_NAME=` nome da tabela vetorial unica
 - `PG_EMBED_DIM=` dimensao esperada do vetor
 - `DEFAULT_EMBED_MODEL=` modelo de embedding usado pelo pipeline
@@ -319,12 +322,20 @@ docker compose run --rm -e DOCUMENT_SOURCE_RUN_ID=documents-smoke -e EMBEDDING_M
 make embeddings-smoke
 ```
 
+Retomar um run parcial sem apagar:
+
+```bash
+docker compose run --rm -e DOCUMENT_SOURCE_RUN_ID=20260308T065422Z -e EMBEDDING_RUN_ID=20260308T092115Z -e EMBEDDING_RESUME=true embedding-ingestor
+```
+
 Para maquina local com Ollama em CPU, a configuracao recomendada hoje e:
 
 - `EMBEDDING_BATCH_SIZE=128` ou `256`
-- `OLLAMA_EMBED_BATCH_SIZE=32`
+- `EMBEDDING_NUM_WORKERS=4`
+- `EMBEDDING_PARALLEL_BATCHES=4`
+- `OLLAMA_EMBED_BATCH_SIZE=128` ou `256`
 
-Subir so `EMBEDDING_BATCH_SIZE` sem ajustar `OLLAMA_EMBED_BATCH_SIZE` tende a ajudar pouco, porque o adapter do Ollama continua fatiando os textos internamente.
+Subir so `EMBEDDING_BATCH_SIZE` sem ajustar `OLLAMA_EMBED_BATCH_SIZE` tende a ajudar pouco, porque o adapter do Ollama continua fatiando os textos internamente. Para aproveitar mais CPU, a PB06 agora tambem consegue processar batches de embedding em paralelo e serializar apenas a escrita no pgvector.
 
 ## Validacao
 
@@ -338,7 +349,7 @@ Verifique no PostgreSQL:
 - linhas na tabela vetorial com `metadata.embedding_run_id = <run_id>`
 - metadata preservando `doc_id`, `event_type`, `map`, `file`, `round` e `source_file`
 
-O pipeline faz delete + reinsert por `embedding_run_id`, registra a execucao em `dataset_runs` com `stage=embeddings` e entrega o storage base da PB06. A PB07 endurece esse mesmo caminho com contrato explicito da tabela vetorial e indices BTREE para filtros de metadata.
+Por padrao, o pipeline faz delete + reinsert por `embedding_run_id`. Quando `EMBEDDING_RESUME=true`, ele consulta o progresso ja persistido, valida se o run existente esta contiguo desde o document `1` e continua dali sem apagar. A execucao segue registrando metadata em `dataset_runs` no fim do job. A PB07 endurece esse mesmo caminho com contrato explicito da tabela vetorial e indices BTREE para filtros de metadata.
 
 # Implementacao PB07
 
@@ -362,7 +373,7 @@ Endurecer o armazenamento vetorial da PB06 sem criar pipeline novo, garantindo c
 ## Contrato da tabela vetorial
 
 - tabela fisica: `public.data_<PG_TABLE_NAME>`
-- politica de reprocessamento: `delete + reinsert` por `embedding_run_id`
+- politica de reprocessamento: `delete + reinsert` por `embedding_run_id`, com resume opcional quando `EMBEDDING_RESUME=true`
 - filtros oficialmente suportados/otimizados:
   - `embedding_run_id`
   - `event_type`

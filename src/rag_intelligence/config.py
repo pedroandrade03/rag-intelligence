@@ -229,7 +229,10 @@ class EmbeddingSettings:
     document_source_run_id: str
     embedding_run_id: str
     embedding_batch_size: int
+    embedding_num_workers: int
+    embedding_parallel_batches: int
     embedding_max_documents: int | None
+    embedding_resume: bool
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> EmbeddingSettings:
@@ -277,10 +280,38 @@ class EmbeddingSettings:
             raise ConfigError(f"Invalid EMBEDDING_BATCH_SIZE value: {batch_size_raw}") from err
         if embedding_batch_size <= 0:
             raise ConfigError("EMBEDDING_BATCH_SIZE must be greater than zero")
+        num_workers_raw = raw_env.get("EMBEDDING_NUM_WORKERS", "4").strip() or "4"
+        try:
+            embedding_num_workers = int(num_workers_raw)
+        except ValueError as err:
+            raise ConfigError(
+                f"Invalid EMBEDDING_NUM_WORKERS value: {num_workers_raw}"
+            ) from err
+        if embedding_num_workers <= 0:
+            raise ConfigError("EMBEDDING_NUM_WORKERS must be greater than zero")
+        parallel_batches_raw = (
+            raw_env.get("EMBEDDING_PARALLEL_BATCHES", "4").strip() or "4"
+        )
+        try:
+            embedding_parallel_batches = int(parallel_batches_raw)
+        except ValueError as err:
+            raise ConfigError(
+                "Invalid EMBEDDING_PARALLEL_BATCHES value: "
+                f"{parallel_batches_raw}"
+            ) from err
+        if embedding_parallel_batches <= 0:
+            raise ConfigError("EMBEDDING_PARALLEL_BATCHES must be greater than zero")
         embedding_max_documents = parse_optional_positive_int(
             raw_env,
             "EMBEDDING_MAX_DOCUMENTS",
         )
+        try:
+            embedding_resume = parse_bool(raw_env.get("EMBEDDING_RESUME", "false"))
+        except ConfigError as err:
+            raw_value = raw_env.get("EMBEDDING_RESUME", "false")
+            raise ConfigError(
+                f"Invalid boolean value for EMBEDDING_RESUME: {raw_value}"
+            ) from err
 
         return cls(
             minio_endpoint=minio_endpoint,
@@ -294,7 +325,10 @@ class EmbeddingSettings:
             document_source_run_id=document_source_run_id,
             embedding_run_id=embedding_run_id,
             embedding_batch_size=embedding_batch_size,
+            embedding_num_workers=embedding_num_workers,
+            embedding_parallel_batches=embedding_parallel_batches,
             embedding_max_documents=embedding_max_documents,
+            embedding_resume=embedding_resume,
         )
 
 

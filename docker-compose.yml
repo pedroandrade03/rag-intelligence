@@ -31,6 +31,8 @@ services:
     image: ollama/ollama:latest
     ports:
       - "11434:11434"
+    environment:
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-4}
     volumes:
       - ollama-data:/root/.ollama
 
@@ -254,6 +256,8 @@ services:
       EMBEDDING_DATASET_PREFIX: ${EMBEDDING_DATASET_PREFIX:-}
       EMBEDDING_RUN_ID: ${EMBEDDING_RUN_ID:-}
       EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-256}
+      EMBEDDING_NUM_WORKERS: ${EMBEDDING_NUM_WORKERS:-4}
+      EMBEDDING_PARALLEL_BATCHES: ${EMBEDDING_PARALLEL_BATCHES:-4}
       PG_HOST: timescaledb
       PG_PORT: "5432"
       PG_USER: ${PG_USER:-raguser}

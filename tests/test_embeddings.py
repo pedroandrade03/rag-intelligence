@@ -11,11 +11,14 @@ from conftest import FakeConnection, FakeCursor, FakeMinio
 from rag_intelligence.config import EmbeddingSettings
 from rag_intelligence.db import build_pgvector_data_table_name
 from rag_intelligence.embeddings import (
+    EmbeddingRunProgress,
+    _download_source_object,
     build_document_from_json,
     build_embedding_manifest_key,
     build_embedding_object_prefix,
     build_embedding_quality_report_key,
     delete_embeddings_for_run,
+    get_embedding_run_progress,
     run_embedding_ingest,
 )
 from rag_intelligence.settings import AppSettings
@@ -24,7 +27,10 @@ from rag_intelligence.settings import AppSettings
 def build_settings(
     batch_size: int = 2,
     *,
+    num_workers: int = 4,
+    parallel_batches: int = 4,
     max_documents: int | None = None,
+    resume: bool = False,
 ) -> EmbeddingSettings:
     return EmbeddingSettings(
         minio_endpoint="localhost:9000",
@@ -38,7 +44,10 @@ def build_settings(
         document_source_run_id="20260308T180500Z",
         embedding_run_id="20260308T181000Z",
         embedding_batch_size=batch_size,
+        embedding_num_workers=num_workers,
+        embedding_parallel_batches=parallel_batches,
         embedding_max_documents=max_documents,
+        embedding_resume=resume,
     )
 
 
@@ -130,6 +139,19 @@ class FakeVectorStore:
         self.added_nodes.extend(nodes)
 
 
+class FlakyDownloadMinio(FakeMinio):
+    def __init__(self, *args, flaky_object: str, failures: int, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.flaky_object = flaky_object
+        self.failures_remaining = failures
+
+    def fget_object(self, bucket_name: str, object_name: str, file_path: str) -> None:
+        if object_name == self.flaky_object and self.failures_remaining > 0:
+            self.failures_remaining -= 1
+            raise RuntimeError("simulated incomplete read")
+        super().fget_object(bucket_name, object_name, file_path)
+
+
 class FakePipeline:
     def __init__(
         self,
@@ -142,7 +164,7 @@ class FakePipeline:
         self.embed_model = transformations[0]
         self.vector_store = vector_store
 
-    def run(self, documents: list[Document]) -> list[FakeNode]:
+    def run(self, documents: list[Document], **_: object) -> list[FakeNode]:
         nodes = [
             FakeNode(
                 id_=str(document.doc_id),
@@ -217,6 +239,54 @@ def test_delete_embeddings_for_run_executes_delete_on_single_pgvector_table() ->
     assert params == ("20260308T181000Z",)
     assert conn.committed
     assert conn.closed
+
+
+def test_get_embedding_run_progress_returns_contiguous_state() -> None:
+    cursor = FakeCursor()
+    cursor.set_result([(5376, 5376, 1, 5376)])
+    conn = FakeConnection(cursor=cursor)
+
+    progress = get_embedding_run_progress(
+        build_app_settings(),
+        "20260308T181000Z",
+        "20260308T180500Z",
+        conn_factory=lambda _settings: conn,
+    )
+
+    assert progress.existing_rows == 5376
+    assert progress.distinct_rows == 5376
+    assert progress.min_doc_line == 1
+    assert progress.max_doc_line == 5376
+
+    query, params = cursor.queries[0]
+    assert "COUNT(DISTINCT node_id)" in query
+    assert params == ("20260308T181000Z", "20260308T180500Z:%")
+    assert conn.closed
+
+
+def test_download_source_object_retries_transient_failures(tmp_path) -> None:
+    object_key = _document_part_key(1)
+    fake_minio = FlakyDownloadMinio(
+        "localhost:9000",
+        "minioadmin",
+        "minioadmin",
+        False,
+        flaky_object=object_key,
+        failures=2,
+        initial_objects={"gold": {object_key: _document_payload("20260308T180500Z:1")}},
+        existing_buckets={"gold"},
+    )
+
+    downloaded_path = _download_source_object(
+        fake_minio,
+        "gold",
+        object_key,
+        tmp_path / "part-00001.jsonl",
+        label="Document part",
+    )
+
+    assert downloaded_path.read_text(encoding="utf-8").startswith('{"doc_id"')
+    assert fake_minio.failures_remaining == 0
 
 
 def test_run_embedding_ingest_reads_manifest_indexes_documents_and_uploads_reports() -> None:
@@ -297,6 +367,8 @@ def test_run_embedding_ingest_reads_manifest_indexes_documents_and_uploads_repor
     assert result.quality_summary["pg_table_name"] == "rag_embeddings"
     assert result.quality_summary["pg_data_table_name"] == "data_rag_embeddings"
     assert result.quality_summary["ensured_indexes"] == ensured_indexes
+    assert result.quality_summary["num_workers"] == 4
+    assert result.quality_summary["parallel_batches"] == 4
 
     added_doc_ids = [node.metadata["doc_id"] for node in vector_store.added_nodes]
     assert added_doc_ids == [
@@ -321,13 +393,20 @@ def test_run_embedding_ingest_reads_manifest_indexes_documents_and_uploads_repor
     assert embedding_manifest["total_parts"] == 2
     assert embedding_manifest["pg_data_table_name"] == "data_rag_embeddings"
     assert embedding_manifest["ensured_indexes"] == ensured_indexes
+    assert embedding_manifest["num_workers"] == 4
+    assert embedding_manifest["parallel_batches"] == 4
 
     embedding_report = json.loads(gold_objects[report_key].decode("utf-8"))
     assert embedding_report["ensured_indexes"] == ensured_indexes
+    assert embedding_report["num_workers"] == 4
+    assert embedding_report["parallel_batches"] == 4
     assert embedding_report["summary"]["rows_read"] == 3
     assert embedding_report["summary"]["rows_output"] == 3
     assert embedding_report["summary"]["documents_indexed"] == 3
     assert embedding_report["summary"]["ensured_indexes"] == ensured_indexes
+    assert embedding_report["summary"]["num_workers"] == 4
+    assert embedding_report["summary"]["parallel_batches"] == 4
+    assert embedding_report["summary"]["resume_enabled"] is False
 
 
 def test_run_embedding_ingest_supports_smoke_limit() -> None:
@@ -383,9 +462,92 @@ def test_run_embedding_ingest_supports_smoke_limit() -> None:
     assert len(vector_store.added_nodes) == 2
     assert embedding_manifest["max_documents"] == 2
     assert embedding_manifest["total_embeddings_indexed"] == 2
+    assert embedding_manifest["parallel_batches"] == 4
     assert embedding_report["max_documents"] == 2
+    assert embedding_report["parallel_batches"] == 4
     assert embedding_report["summary"]["max_documents"] == 2
     assert embedding_report["summary"]["documents_indexed"] == 2
+
+
+def test_run_embedding_ingest_can_resume_without_deleting_existing_rows() -> None:
+    manifest = {
+        "generated_at": datetime.now(tz=UTC).isoformat(),
+        "artifact_prefix": "csgo-matchmaking-damage/20260308T180500Z/documents/",
+        "parts": [
+            {
+                "object_key": _document_part_key(1),
+                "rows": 2,
+                "first_doc_id": "20260308T180500Z:1",
+                "last_doc_id": "20260308T180500Z:2",
+            },
+            {
+                "object_key": _document_part_key(2),
+                "rows": 2,
+                "first_doc_id": "20260308T180500Z:3",
+                "last_doc_id": "20260308T180500Z:4",
+            },
+        ],
+    }
+    fake_minio = FakeMinio(
+        "localhost:9000",
+        "minioadmin",
+        "minioadmin",
+        False,
+        initial_objects={
+            "gold": {
+                _document_manifest_key(): json.dumps(manifest).encode("utf-8"),
+                _document_part_key(1): (
+                    _document_payload("20260308T180500Z:1")
+                    + _document_payload("20260308T180500Z:2")
+                ),
+                _document_part_key(2): (
+                    _document_payload("20260308T180500Z:3", file_name="demo_3")
+                    + _document_payload("20260308T180500Z:4", file_name="demo_4")
+                ),
+            }
+        },
+        existing_buckets={"gold"},
+    )
+    vector_store = FakeVectorStore()
+    delete_calls: list[str] = []
+
+    result = run_embedding_ingest(
+        build_settings(batch_size=2, resume=True),
+        minio_factory=lambda **kwargs: fake_minio,
+        app_settings_factory=lambda: build_app_settings(embed_dim=3),
+        registry_factory=lambda settings: FakeRegistry(settings, dimension=3),
+        vector_store_factory=lambda _settings: vector_store,
+        pipeline_factory=FakePipeline,
+        delete_embeddings_for_run_fn=lambda _settings, run_id: delete_calls.append(run_id) or 0,
+        get_embedding_run_progress_fn=lambda *_args, **_kwargs: EmbeddingRunProgress(
+            existing_rows=2,
+            distinct_rows=2,
+            min_doc_line=1,
+            max_doc_line=2,
+        ),
+        ensure_pgvector_storage_contract_fn=lambda _settings: ["idx_a"],
+    )
+
+    assert delete_calls == []
+    assert [node.id_ for node in vector_store.added_nodes] == [
+        "20260308T180500Z:3",
+        "20260308T180500Z:4",
+    ]
+    assert result.rows_read == 4
+    assert result.rows_output == 4
+    assert result.quality_summary["execution_rows_read"] == 2
+    assert result.quality_summary["execution_rows_output"] == 2
+    assert result.quality_summary["resume_enabled"] is True
+    assert result.quality_summary["resume_existing_rows"] == 2
+    assert result.quality_summary["resume_from_doc_line"] == 2
+    assert result.quality_summary["resume_skipped_parts"] == 1
+    assert result.quality_summary["resume_skipped_documents"] == 2
+
+    report_key = "csgo-matchmaking-damage/20260308T181000Z/embeddings/quality_report.json"
+    embedding_report = json.loads(fake_minio.objects["gold"][report_key].decode("utf-8"))
+    assert embedding_report["resume_enabled"] is True
+    assert embedding_report["summary"]["rows_output"] == 4
+    assert embedding_report["summary"]["execution_rows_output"] == 2
 
 
 def test_run_embedding_ingest_fails_when_embedding_dimension_does_not_match() -> None:
