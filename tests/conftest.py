@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -57,3 +58,44 @@ class FakeMinio:
         if bucket_name not in self.buckets:
             raise ValueError(f"Bucket not found: {bucket_name}")
         self.objects.setdefault(bucket_name, {})[object_name] = Path(file_path).read_bytes()
+
+
+class FakeCursor:
+    def __init__(self) -> None:
+        self.queries: list[tuple[str, tuple[Any, ...]]] = []
+        self._rows: list[tuple[Any, ...]] = []
+        self.description: list[tuple[str, ...]] | None = None
+
+    def execute(self, query: str, params: tuple[Any, ...] = ()) -> None:
+        self.queries.append((query, params))
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self._rows[0] if self._rows else None
+
+    def close(self) -> None:
+        pass
+
+    def set_result(
+        self,
+        rows: list[tuple[Any, ...]],
+        columns: list[str] | None = None,
+    ) -> None:
+        self._rows = rows
+        if columns:
+            self.description = [(col,) for col in columns]
+
+
+class FakeConnection:
+    def __init__(self, *, cursor: FakeCursor | None = None) -> None:
+        self._cursor = cursor or FakeCursor()
+        self.committed = False
+        self.closed = False
+
+    def cursor(self) -> FakeCursor:
+        return self._cursor
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def close(self) -> None:
+        self.closed = True

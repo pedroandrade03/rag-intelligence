@@ -29,4 +29,29 @@ def main() -> int:
         "Bronze import finished successfully with %s uploaded objects.",
         len(uploaded_objects),
     )
+
+    try:
+        from rag_intelligence.metadata import (
+            MetadataSettings,
+            RunRecord,
+            ensure_schema,
+            register_run,
+        )
+
+        md_settings = MetadataSettings.from_env()
+        ensure_schema(md_settings)
+        register_run(
+            md_settings,
+            RunRecord(
+                run_id=settings.run_id,
+                stage="bronze",
+                dataset_prefix=settings.dataset_prefix,
+                bucket=settings.minio_bucket,
+                files_processed=len(uploaded_objects),
+            ),
+        )
+        logging.info("Registered bronze run %s in metadata", settings.run_id)
+    except Exception as exc:
+        logging.warning("Failed to register metadata (non-fatal): %s", exc)
+
     return 0

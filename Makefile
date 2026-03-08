@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver gold ollama-pull clean
+.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver gold ollama-pull otel-up otel-down otel-logs clean
 
 .DEFAULT_GOAL := help
 
@@ -51,6 +51,22 @@ silver: ## Run silver transformer job
 
 gold: ## Run gold transformer job
 	docker compose run --rm gold-transformer
+
+otel-up: ## Start observability stack (OTEL Collector + Jaeger + Prometheus + Grafana)
+	docker compose --profile observability up -d
+	@echo ""
+	@echo "Observability UIs:"
+	@echo "  Jaeger:     http://localhost:16686"
+	@echo "  Prometheus: http://localhost:9090"
+	@echo "  Grafana:    http://localhost:3000"
+	@echo ""
+	@echo "Set OTEL_ENABLED=true in .env and restart rag-api to send traces."
+
+otel-down: ## Stop observability stack
+	docker compose --profile observability down
+
+otel-logs: ## Follow observability logs
+	docker compose --profile observability logs -f otel-collector jaeger prometheus grafana
 
 ollama-pull: ## Pull Ollama models (inference + embedding)
 	docker exec -it $$(docker compose ps -q ollama) ollama pull qwen2.5:7b-instruct

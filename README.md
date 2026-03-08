@@ -22,8 +22,8 @@
 O sistema alvo do projeto é organizado em cinco camadas:
 
 - **Dados**: ingestão do dataset externo, armazenamento em Data Lake e persistência de metadados e vetores.
-- **IA**: preparação de features, geração de embeddings, recuperação semântica, inferência assíncrona, analytics e modelos preditivos.
-- **Aplicação**: API para consulta dos eventos, gateway WebSocket e frontend web para visualização dos resultados.
+- **IA**: preparação de features, geração de embeddings, recuperação semântica via LlamaIndex, analytics e modelos preditivos.
+- **Aplicação**: API FastAPI com streaming (SSE/WebSocket) via LlamaIndex e frontend Next.js para visualização dos resultados.
 - **MLOps**: rastreamento de experimentos, métricas e versionamento de modelos.
 - **Infraestrutura**: execução local e orquestração dos serviços de dados e aplicação.
 
@@ -31,11 +31,11 @@ O sistema alvo do projeto é organizado em cinco camadas:
 
 - **Fonte externa**: Kaggle como origem do dataset `csgo-matchmaking-damage`.
 - **Camada de Dados**: MinIO como Data Lake em estágios Bronze, Silver e Gold; PostgreSQL com extensão pgvector para metadados, versionamento e indexação vetorial. O PostgreSQL com pgvector é store relacional e vetorial, não broker de mensageria.
-- **Camada de IA**: pipelines de feature engineering, geração de embeddings, recuperação por similaridade/RAG, worker de inferência assíncrona e modelos preditivos.
-- **Camada de Aplicação**: FastAPI para expor endpoints HTTP e WebSocket e atuar como gateway do frontend; Next.js como cliente web.
-- **Serviços de Suporte**: Redis Streams como barramento interno de jobs e eventos entre FastAPI e workers; servidor de LLM como dependência interna chamada pelo worker de inferência.
+- **Camada de IA**: LlamaIndex como engine de RAG — `IngestionPipeline` para embeddings, `QueryEngine`/`ChatEngine` para recuperação e inferência, tudo dentro do processo FastAPI. Modelos preditivos com scikit-learn/pandas.
+- **Camada de Aplicação**: FastAPI para endpoints HTTP e streaming (SSE/WebSocket) via `astream_chat()` do LlamaIndex; Next.js como cliente web.
+- **Serviços de Suporte**: Ollama como provedor local de LLM/embeddings (fallback quando API keys não configuradas); provedores cloud (OpenAI, Anthropic, Voyage) via abstração LlamaIndex.
 - **Camada de MLOps**: MLflow para registrar experimentos, métricas e versões de modelos.
-- **Infraestrutura**: Docker Compose como orquestração local e job Python para a carga inicial da Bronze.
+- **Infraestrutura**: Docker Compose como orquestração local e jobs Python para ingestão e transformação de dados.
 
 ### Legenda
 
@@ -50,21 +50,20 @@ flowchart LR
 
     subgraph dados[Camada de Dados]
         bronze["MinIO Bronze<br/>Implementado"]
-        silver["MinIO Silver<br/>Planejado"]
-        gold["MinIO Gold<br/>Planejado"]
-        pg["PostgreSQL + pgvector<br/>Planejado"]
+        silver["MinIO Silver<br/>Implementado"]
+        gold["MinIO Gold<br/>Implementado"]
+        pg["PostgreSQL + pgvector<br/>Parcial (metadados)"]
     end
 
-    subgraph ia[Camada de IA]
-        fe["Feature Engineering<br/>Planejado"]
-        emb["Embeddings<br/>Planejado"]
-        rag["RAG / Similaridade<br/>Planejado"]
-        worker["Worker de Inferência<br/>Planejado"]
+    subgraph ia[Camada de IA — LlamaIndex]
+        fe["Construção de Documents<br/>Planejado"]
+        ingest["IngestionPipeline<br/>(embed + store)<br/>Planejado"]
+        rag["QueryEngine / ChatEngine<br/>Planejado"]
         ml["Analytics e Modelos<br/>Planejado"]
     end
 
     subgraph app[Camada de Aplicação]
-        api["FastAPI HTTP + WebSocket<br/>Planejado"]
+        api["FastAPI + Streaming<br/>Parcial (skeleton)"]
         frontend["Frontend Next.js<br/>Planejado"]
     end
 
@@ -74,35 +73,30 @@ flowchart LR
 
     subgraph infra[Infraestrutura]
         compose["Docker Compose<br/>Implementado"]
-        importer["Python Bronze Importer<br/>Implementado"]
-        redis["Redis Streams<br/>Planejado"]
-        llm["Servidor de LLM<br/>Planejado"]
+        importer["Jobs Python<br/>Implementado"]
+        ollama["Ollama<br/>Implementado"]
     end
 
     kaggle --> importer --> bronze --> silver --> gold
     bronze -. metadados .-> pg
-    silver --> fe --> emb --> pg --> rag --> worker
+    gold --> fe --> ingest --> pg
+    pg --> rag --> api
+    rag -.->|"LLM call"| ollama
     gold --> ml --> api
-    frontend -->|"HTTP / WebSocket"| api
-    api -->|"publica job"| redis
-    redis -->|"entrega job"| worker
-    worker -->|"consulta contexto"| pg
-    worker -->|"busca dados"| gold
-    worker -->|"chama inferência"| llm
-    worker -->|"publica eventos"| redis
-    redis -->|"retorna eventos"| api
-    api -->|"responde via WebSocket"| frontend
+    frontend -->|"HTTP / SSE"| api
+    api -->|"streaming response"| frontend
     fe --> mlflow
-    emb --> mlflow
-    worker --> mlflow
+    ingest --> mlflow
     ml --> mlflow
     compose --> importer
     compose -. sobe serviços locais .-> bronze
 
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
-    class bronze,compose,importer implemented;
-    class silver,gold,pg,fe,emb,rag,worker,ml,api,frontend,mlflow,redis,llm planned;
+    classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
+    class bronze,compose,importer,silver,gold,ollama implemented;
+    class pg,api partial;
+    class fe,ingest,rag,ml,frontend,mlflow planned;
 ```
 
 ### Pipeline de Dados
@@ -114,9 +108,9 @@ flowchart LR
     importer["Job Python de ingestão<br/>Implementado"]
     bronzeRaw["MinIO Bronze / raw<br/>Implementado"]
     bronzeExtracted["MinIO Bronze / extracted<br/>Implementado"]
-    silver["MinIO Silver<br/>Planejado"]
-    gold["MinIO Gold<br/>Planejado"]
-    pg["PostgreSQL + pgvector<br/>Planejado"]
+    silver["MinIO Silver<br/>Implementado"]
+    gold["MinIO Gold<br/>Implementado"]
+    pg["PostgreSQL + pgvector<br/>Parcial (metadados)"]
 
     kaggle --> zip --> importer
     importer --> bronzeRaw
@@ -126,41 +120,39 @@ flowchart LR
     gold -. catálogo, metadados e vetores .-> pg
 
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
+    classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
-    class zip,importer,bronzeRaw,bronzeExtracted implemented;
-    class silver,gold,pg planned;
+    class zip,importer,bronzeRaw,bronzeExtracted,silver,gold implemented;
+    class pg partial;
 ```
 
 ### Pipeline de IA e RAG
 
 ```mermaid
 flowchart LR
-    silver["MinIO Silver<br/>Planejado"]
-    gold["MinIO Gold<br/>Planejado"]
-    fe["Feature Engineering<br/>Planejado"]
-    emb["Gerador de Embeddings<br/>Planejado"]
+    gold["MinIO Gold<br/>Implementado"]
+    docs["Document(text, metadata)<br/>Planejado"]
+    ingest["IngestionPipeline<br/>(SentenceSplitter + EmbedModel)<br/>Planejado"]
     pgvector["PostgreSQL + pgvector<br/>Planejado"]
-    rag["Busca Semântica / RAG<br/>Planejado"]
-    worker["Worker de Inferência<br/>Planejado"]
-    llm["Servidor de LLM<br/>Planejado"]
+    index["VectorStoreIndex<br/>Planejado"]
+    query["QueryEngine / ChatEngine<br/>Planejado"]
+    ollama["Ollama<br/>Implementado"]
     analytics["Analytics de combate<br/>Planejado"]
     models["Modelos preditivos<br/>Planejado"]
-    api["FastAPI HTTP + WebSocket<br/>Planejado"]
-    redis["Redis Streams<br/>Planejado"]
+    api["FastAPI + Streaming<br/>Parcial"]
 
-    silver --> fe
-    gold --> fe
-    fe --> emb --> pgvector --> rag --> worker
-    api -->|"publica job"| redis
-    redis -->|"entrega job"| worker
-    worker --> llm
-    worker -->|"publica eventos"| redis
-    redis -->|"retorna eventos"| api
+    gold --> docs --> ingest --> pgvector
+    pgvector --> index --> query --> api
+    query -.->|"LLM call"| ollama
     gold --> analytics --> api
-    fe --> models --> worker
+    docs --> models --> api
 
+    classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
-    class silver,gold,fe,emb,pgvector,rag,worker,llm,analytics,models,api,redis planned;
+    classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
+    class gold,ollama implemented;
+    class api partial;
+    class docs,ingest,pgvector,index,query,analytics,models planned;
 ```
 
 ### Fluxo de Aplicação e MLOps
@@ -169,40 +161,36 @@ flowchart LR
 flowchart LR
     user["Usuário"]
     frontend["Frontend Next.js<br/>Planejado"]
-    api["FastAPI HTTP + WebSocket<br/>Planejado"]
-    redis["Redis Streams<br/>Planejado"]
-    worker["Worker de Inferência<br/>Planejado"]
-    llm["Servidor de LLM<br/>Planejado"]
-    gold["MinIO Gold<br/>Planejado"]
+    api["FastAPI + Streaming<br/>Parcial"]
+    query["LlamaIndex QueryEngine<br/>Planejado"]
     pgvector["PostgreSQL + pgvector<br/>Planejado"]
-    fe["Feature Engineering<br/>Planejado"]
-    emb["Embeddings<br/>Planejado"]
+    ollama["Ollama<br/>Implementado"]
+    gold["MinIO Gold<br/>Implementado"]
     models["Modelos preditivos<br/>Planejado"]
     mlflow["MLflow<br/>Planejado"]
 
     user --> frontend
-    frontend -->|"HTTP / WebSocket"| api
-    api -->|"publica job"| redis
-    redis -->|"entrega job"| worker
-    worker -->|"consulta dados"| gold
-    worker -->|"consulta vetores"| pgvector
-    worker -->|"chama inferência"| llm
-    worker -->|"publica eventos"| redis
-    redis -->|"retorna eventos"| api
-    api -->|"envia resposta"| frontend
-    fe --> mlflow
-    emb --> mlflow
-    models --> worker
-    worker --> mlflow
+    frontend -->|"HTTP / SSE"| api
+    api --> query
+    query -->|"retrieval"| pgvector
+    query -->|"LLM call"| ollama
+    api -->|"streaming response"| frontend
+    gold --> models --> api
+    query --> mlflow
+    models --> mlflow
 
+    classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
-    class frontend,api,redis,worker,llm,gold,pgvector,fe,emb,models,mlflow planned;
+    classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
+    class gold,ollama implemented;
+    class api partial;
+    class frontend,query,pgvector,models,mlflow planned;
 ```
 
 ### Estado Atual
 
-- **Implementado**: PB01, importer Python da Bronze, MinIO local, Docker Compose e documentação do fluxo de carga.
-- **Planejado**: Silver, Gold, PostgreSQL com pgvector, FastAPI com WebSocket, frontend Next.js, Redis Streams, worker de inferência, servidor de LLM, MLflow, analytics e modelos preditivos.
+- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), importer Python, transformers Silver/Gold, MinIO local, Docker Compose, CI (ruff + pyright + pytest), 58 testes.
+- **Planejado**: PB05-PB08 (pipeline de IA/RAG), PB09-PB11 (API FastAPI + frontend Next.js), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
 
 ---
 
@@ -390,24 +378,24 @@ O pipeline aplica `event_type` por tipo de arquivo, fallback de arma (`wp` -> `n
 
 # Epic 2 — Pipeline de IA para Análise de Combate
 
-**Objetivo:** criar um sistema inteligente e assíncrono para analisar eventos de combate.
+**Objetivo:** construir o pipeline de RAG com LlamaIndex para análise semântica de eventos de combate.
 
-| ID   | User Story                                                                              | Camada                   | Critério de Aceite                |
-| ---- | --------------------------------------------------------------------------------------- | ------------------------ | --------------------------------- |
-| PB05 | Como desenvolvedor, quero transformar eventos de combate em representações estruturadas | IA (Feature Engineering) | Features geradas corretamente     |
-| PB06 | Como desenvolvedor, quero gerar embeddings de eventos de combate para busca semântica   | IA (Embedding)           | Embeddings criados                |
-| PB07 | Como desenvolvedor, quero armazenar embeddings no banco vetorial                        | Dados (PostgreSQL + pgvector) | Vetores indexados no PostgreSQL com pgvector |
-| PB08 | Como usuário, quero buscar eventos similares de combate                                 | IA (RAG / Similaridade + Worker)  | Sistema retorna eventos similares por fluxo assíncrono |
+| ID   | User Story                                                                              | Camada                   | Critério de Aceite                | Nota |
+| ---- | --------------------------------------------------------------------------------------- | ------------------------ | --------------------------------- | ---- |
+| PB05 | Como desenvolvedor, quero transformar eventos de combate em representações estruturadas | IA (Document construction) | Documents com texto e metadados gerados a partir do Gold | Lógica de negócio |
+| PB06 | Como desenvolvedor, quero gerar embeddings de eventos de combate para busca semântica   | IA (LlamaIndex IngestionPipeline) | Embeddings criados e inseridos no pgvector | Configuração |
+| PB07 | Como desenvolvedor, quero armazenar embeddings no banco vetorial                        | Dados (PostgreSQL + pgvector) | Vetores indexados no PostgreSQL com pgvector | Configuração (mesmo pipeline do PB06) |
+| PB08 | Como usuário, quero buscar eventos similares de combate                                 | IA (LlamaIndex QueryEngine) | QueryEngine retorna eventos similares via API | Configuração |
 
 ---
 
 # Epic 3 — API de Consulta de Dados
 
-**Objetivo:** disponibilizar análise de partidas via API e frontend em tempo real.
+**Objetivo:** disponibilizar análise de partidas via API e frontend.
 
 | ID   | User Story                                                                | Camada                | Critério de Aceite             |
 | ---- | ------------------------------------------------------------------------- | --------------------- | ------------------------------ |
-| PB09 | Como desenvolvedor, quero criar uma API para consultar eventos de combate | Aplicação (FastAPI + WebSocket)   | Endpoint `/events` e canal WebSocket funcionando |
+| PB09 | Como desenvolvedor, quero criar uma API para consultar eventos de combate | Aplicação (FastAPI + SSE/WebSocket) | Endpoints de chat/query com streaming via LlamaIndex `astream_chat()` |
 | PB10 | Como usuário, quero pesquisar estatísticas de armas e dano                | Aplicação             | Dados retornados corretamente  |
 | PB11 | Como usuário, quero visualizar análises do jogo                           | Aplicação (Next.js) | Resultados exibidos no frontend web            |
 
@@ -441,8 +429,8 @@ O pipeline aplica `event_type` por tipo de arquivo, fallback de arma (`wp` -> `n
 
 | ID   | User Story                                                       | Camada                  | Critério de Aceite    |
 | ---- | ---------------------------------------------------------------- | ----------------------- | --------------------- |
-| PB18 | Como desenvolvedor, quero containerizar os serviços              | Infraestrutura (Docker) | API, frontend, worker e serviços de dados containerizados |
-| PB19 | Como desenvolvedor, quero orquestrar serviços com Docker Compose | Infraestrutura          | Stack local com pipeline e mensageria executando   |
+| PB18 | Como desenvolvedor, quero containerizar os serviços              | Infraestrutura (Docker) | API, frontend e serviços de dados containerizados |
+| PB19 | Como desenvolvedor, quero orquestrar serviços com Docker Compose | Infraestrutura          | Stack local com todos os serviços executando |
 | PB20 | Como desenvolvedor, quero documentar a arquitetura do sistema    | Infraestrutura          | README completo e alinhado ao fluxo assíncrono       |
 
 ---
