@@ -266,12 +266,9 @@ class EmbeddingSettings:
             raw_env.get("EMBEDDING_REPORT_BUCKET", "").strip() or document_bucket
         )
         embedding_dataset_prefix = (
-            raw_env.get("EMBEDDING_DATASET_PREFIX", "").strip()
-            or document_dataset_prefix
+            raw_env.get("EMBEDDING_DATASET_PREFIX", "").strip() or document_dataset_prefix
         )
-        embedding_run_id = (
-            raw_env.get("EMBEDDING_RUN_ID", "").strip() or document_source_run_id
-        )
+        embedding_run_id = raw_env.get("EMBEDDING_RUN_ID", "").strip() or document_source_run_id
 
         batch_size_raw = raw_env.get("EMBEDDING_BATCH_SIZE", "256").strip() or "256"
         try:
@@ -284,20 +281,15 @@ class EmbeddingSettings:
         try:
             embedding_num_workers = int(num_workers_raw)
         except ValueError as err:
-            raise ConfigError(
-                f"Invalid EMBEDDING_NUM_WORKERS value: {num_workers_raw}"
-            ) from err
+            raise ConfigError(f"Invalid EMBEDDING_NUM_WORKERS value: {num_workers_raw}") from err
         if embedding_num_workers <= 0:
             raise ConfigError("EMBEDDING_NUM_WORKERS must be greater than zero")
-        parallel_batches_raw = (
-            raw_env.get("EMBEDDING_PARALLEL_BATCHES", "4").strip() or "4"
-        )
+        parallel_batches_raw = raw_env.get("EMBEDDING_PARALLEL_BATCHES", "4").strip() or "4"
         try:
             embedding_parallel_batches = int(parallel_batches_raw)
         except ValueError as err:
             raise ConfigError(
-                "Invalid EMBEDDING_PARALLEL_BATCHES value: "
-                f"{parallel_batches_raw}"
+                f"Invalid EMBEDDING_PARALLEL_BATCHES value: {parallel_batches_raw}"
             ) from err
         if embedding_parallel_batches <= 0:
             raise ConfigError("EMBEDDING_PARALLEL_BATCHES must be greater than zero")
@@ -309,9 +301,7 @@ class EmbeddingSettings:
             embedding_resume = parse_bool(raw_env.get("EMBEDDING_RESUME", "false"))
         except ConfigError as err:
             raw_value = raw_env.get("EMBEDDING_RESUME", "false")
-            raise ConfigError(
-                f"Invalid boolean value for EMBEDDING_RESUME: {raw_value}"
-            ) from err
+            raise ConfigError(f"Invalid boolean value for EMBEDDING_RESUME: {raw_value}") from err
 
         return cls(
             minio_endpoint=minio_endpoint,

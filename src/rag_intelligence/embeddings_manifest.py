@@ -73,8 +73,7 @@ def _download_source_object(
             sleep(PART_DOWNLOAD_RETRY_DELAY_SECONDS)
 
     raise RuntimeError(
-        f"Failed to download {label.lower()} after {max_attempts} attempts: "
-        f"{bucket}/{object_key}"
+        f"Failed to download {label.lower()} after {max_attempts} attempts: {bucket}/{object_key}"
     ) from last_error
 
 
@@ -99,8 +98,7 @@ def load_document_manifest(client: Minio, settings: EmbeddingSettings) -> dict[s
             manifest = json.loads(response.read().decode("utf-8"))
         except json.JSONDecodeError as exc:
             raise ValueError(
-                "Document manifest is invalid JSON: "
-                f"{settings.document_bucket}/{manifest_key}"
+                f"Document manifest is invalid JSON: {settings.document_bucket}/{manifest_key}"
             ) from exc
     finally:
         response.close()

@@ -211,7 +211,8 @@ def run_embedding_ingest(
                     resume_from_doc_line > 0
                     and manifest_part.first_doc_line is not None
                     and manifest_part.last_doc_line is not None
-                    and manifest_part.first_doc_line <= resume_from_doc_line
+                    and manifest_part.first_doc_line
+                    <= resume_from_doc_line
                     < manifest_part.last_doc_line
                 ):
                     part_skip_remaining = resume_from_doc_line - manifest_part.first_doc_line + 1
@@ -441,10 +442,7 @@ def run_embedding_ingest(
         uploaded_objects.append(quality_report_key)
 
     LOGGER.info(
-        (
-            "Embedding ingest completed: run_id=%s documents=%s indexed=%s "
-            "parts=%s table=%s"
-        ),
+        ("Embedding ingest completed: run_id=%s documents=%s indexed=%s parts=%s table=%s"),
         settings.embedding_run_id,
         total_rows_read,
         total_rows_output,

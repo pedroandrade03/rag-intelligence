@@ -158,8 +158,7 @@ def search_events(
     retrieval_ms = int((perf_counter() - started_at) * 1000)
 
     results = [
-        build_search_result(item, rank=rank)
-        for rank, item in enumerate(retrieved_nodes, start=1)
+        build_search_result(item, rank=rank) for rank, item in enumerate(retrieved_nodes, start=1)
     ]
     return SearchResponse(
         query=request.query,

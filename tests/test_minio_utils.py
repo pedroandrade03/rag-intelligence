@@ -83,7 +83,10 @@ class TestStreamTextLines:
 class TestLoadMinioObject:
     def test_returns_response_for_existing_object(self):
         client = FakeMinio(
-            "localhost:9000", "key", "secret", False,
+            "localhost:9000",
+            "key",
+            "secret",
+            False,
             initial_objects={"bucket": {"key.txt": b"data"}},
             existing_buckets={"bucket"},
         )
@@ -92,7 +95,10 @@ class TestLoadMinioObject:
 
     def test_raises_file_not_found_for_missing_key(self):
         client = FakeMinio(
-            "localhost:9000", "key", "secret", False,
+            "localhost:9000",
+            "key",
+            "secret",
+            False,
             initial_objects={"bucket": {}},
             existing_buckets={"bucket"},
         )

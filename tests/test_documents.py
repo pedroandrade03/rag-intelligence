@@ -161,7 +161,7 @@ def test_run_document_build_streams_gold_csv_and_partitions_output() -> None:
                     b"is_bomb_planted\n"
                     b"damage,demo_1,1,de_mirage,damage.csv,ak47,32,,100,200,300,400,head,,,"
                     b"team_a,team_b,t,ct,100,12.5,,,,,,,,,\n"
-                    b"grenade,demo_2,2,de_nuke,grenades.csv,hegrenade,,20,10,20,,,," 
+                    b"grenade,demo_2,2,de_nuke,grenades.csv,hegrenade,,20,10,20,,,,"
                     b"hegrenade,,team_c,team_d,t,ct,200,14.0,,,,,,500,700,\n"
                     b"kill,demo_3,3,de_inferno,kills.csv,m4a1,,,,,,,,,rifle,team_e,team_f,"
                     b"ct,t,300,25.0,,,,,,,true\n"
@@ -202,8 +202,7 @@ def test_run_document_build_streams_gold_csv_and_partitions_output() -> None:
     assert result.quality_report_key == report_key
 
     first_part = [
-        json.loads(line)
-        for line in gold_objects[part_keys[0]].decode("utf-8").splitlines()
+        json.loads(line) for line in gold_objects[part_keys[0]].decode("utf-8").splitlines()
     ]
     assert len(first_part) == 2
     assert first_part[0]["doc_id"] == "20260306T025119Z:1"
@@ -291,8 +290,7 @@ def test_run_document_build_fails_when_required_columns_are_missing() -> None:
         initial_objects={
             "gold": {
                 _events_key(): (
-                    b"event_type,file,round,map,weapon\n"
-                    b"damage,demo_1,1,de_mirage,ak47\n"
+                    b"event_type,file,round,map,weapon\ndamage,demo_1,1,de_mirage,ak47\n"
                 ),
             }
         },

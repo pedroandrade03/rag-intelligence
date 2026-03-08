@@ -82,10 +82,7 @@ def build_document_object_prefix(dataset_prefix: str, run_id: str) -> str:
 
 
 def build_document_part_key(dataset_prefix: str, run_id: str, part_number: int) -> str:
-    return (
-        f"{build_document_object_prefix(dataset_prefix, run_id)}"
-        f"part-{part_number:05d}.jsonl"
-    )
+    return f"{build_document_object_prefix(dataset_prefix, run_id)}part-{part_number:05d}.jsonl"
 
 
 def build_document_manifest_key(dataset_prefix: str, run_id: str) -> str:
@@ -98,7 +95,6 @@ def build_document_quality_report_key(dataset_prefix: str, run_id: str) -> str:
 
 def build_doc_id(document_run_id: str, line_number: int) -> str:
     return f"{document_run_id}:{line_number}"
-
 
 
 def _parse_number(value: str) -> int | float | str:
@@ -271,7 +267,6 @@ def build_document_metadata(
     return metadata
 
 
-
 def run_document_build(
     settings: DocumentSettings,
     *,
@@ -358,10 +353,7 @@ def run_document_build(
             missing_columns = sorted(REQUIRED_GOLD_COLUMNS - fieldnames)
             if missing_columns:
                 joined_missing = ", ".join(missing_columns)
-                raise ValueError(
-                    "Gold events.csv is missing required columns: "
-                    f"{joined_missing}"
-                )
+                raise ValueError(f"Gold events.csv is missing required columns: {joined_missing}")
 
             for source_line_number, row in enumerate(reader, start=2):
                 if (
