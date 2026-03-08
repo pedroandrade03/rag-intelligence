@@ -4,8 +4,8 @@ import json
 from datetime import UTC, datetime
 
 import pytest
-from tests.conftest import FakeConnection, FakeCursor
 
+from conftest import FakeConnection, FakeCursor
 from rag_intelligence.config import ConfigError
 from rag_intelligence.metadata import (
     MetadataSettings,

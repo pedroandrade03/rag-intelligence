@@ -101,7 +101,7 @@ def build_pgvector_metadata_indexes(
     return tuple(index_definitions)
 
 
-def _default_conn_factory(settings: AppSettings) -> Any:
+def default_conn_factory(settings: AppSettings) -> Any:
     return psycopg2.connect(
         host=settings.pg_host,
         port=settings.pg_port,
@@ -116,11 +116,12 @@ def ensure_pgvector_storage_contract(
     *,
     conn_factory: Any = None,
 ) -> list[str]:
-    factory = conn_factory or _default_conn_factory
+    indexes = build_pgvector_metadata_indexes(settings.pg_table_name)
+    factory = conn_factory or default_conn_factory
     conn = factory(settings)
     try:
         cursor = conn.cursor()
-        for definition in build_pgvector_metadata_indexes(settings.pg_table_name):
+        for definition in indexes:
             cursor.execute(
                 f"DROP INDEX IF EXISTS {PGVECTOR_SCHEMA_NAME}.{definition.legacy_index_name};"
             )
@@ -129,10 +130,7 @@ def ensure_pgvector_storage_contract(
         cursor.close()
     finally:
         conn.close()
-    return [
-        definition.name
-        for definition in build_pgvector_metadata_indexes(settings.pg_table_name)
-    ]
+    return [d.name for d in indexes]
 
 
 def pgvector_data_table_exists(
@@ -140,7 +138,7 @@ def pgvector_data_table_exists(
     *,
     conn_factory: Any = None,
 ) -> bool:
-    factory = conn_factory or _default_conn_factory
+    factory = conn_factory or default_conn_factory
     conn = factory(settings)
     try:
         cursor = conn.cursor()

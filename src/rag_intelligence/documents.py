@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import codecs
 import csv
 import json
 import logging
 import tempfile
 from collections import Counter
-from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -14,11 +12,15 @@ from pathlib import Path
 from typing import Any
 
 from minio import Minio
-from minio.error import S3Error
 
 from rag_intelligence.config import DocumentSettings
 from rag_intelligence.gold import build_gold_events_key
-from rag_intelligence.minio_utils import clean_cell, ensure_bucket
+from rag_intelligence.minio_utils import (
+    clean_cell,
+    ensure_bucket,
+    load_minio_object,
+    stream_text_lines,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -97,25 +99,6 @@ def build_document_quality_report_key(dataset_prefix: str, run_id: str) -> str:
 def build_doc_id(document_run_id: str, line_number: int) -> str:
     return f"{document_run_id}:{line_number}"
 
-
-def _stream_text_lines(response: Any, *, chunk_size: int = 64 * 1024) -> Iterator[str]:
-    decoder = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
-    buffer = ""
-
-    for chunk in response.stream(chunk_size):
-        if not chunk:
-            continue
-        buffer += decoder.decode(chunk)
-        while True:
-            newline_index = buffer.find("\n")
-            if newline_index == -1:
-                break
-            yield buffer[: newline_index + 1]
-            buffer = buffer[newline_index + 1 :]
-
-    buffer += decoder.decode(b"", final=True)
-    if buffer:
-        yield buffer
 
 
 def _parse_number(value: str) -> int | float | str:
@@ -288,20 +271,6 @@ def build_document_metadata(
     return metadata
 
 
-def _load_source_response(client: Minio, settings: DocumentSettings, source_object: str) -> Any:
-    try:
-        return client.get_object(settings.gold_bucket, source_object)
-    except KeyError as exc:
-        raise FileNotFoundError(
-            f"Gold object not found for run_id={settings.gold_source_run_id}: {source_object}"
-        ) from exc
-    except S3Error as exc:
-        if exc.code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket"}:
-            raise FileNotFoundError(
-                f"Gold object not found for run_id={settings.gold_source_run_id}: {source_object}"
-            ) from exc
-        raise
-
 
 def run_document_build(
     settings: DocumentSettings,
@@ -325,7 +294,12 @@ def run_document_build(
         settings.document_dataset_prefix,
         settings.document_run_id,
     )
-    response = _load_source_response(client, settings, source_object)
+    response = load_minio_object(
+        client,
+        settings.gold_bucket,
+        source_object,
+        label="Gold object",
+    )
 
     uploaded_objects: list[str] = []
     event_type_counts: Counter[str] = Counter()
@@ -379,7 +353,7 @@ def run_document_build(
             current_part_last_doc_id = ""
 
         try:
-            reader = csv.DictReader(_stream_text_lines(response))
+            reader = csv.DictReader(stream_text_lines(response))
             fieldnames = set(reader.fieldnames or [])
             missing_columns = sorted(REQUIRED_GOLD_COLUMNS - fieldnames)
             if missing_columns:

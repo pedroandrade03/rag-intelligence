@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import codecs
 import json
 import logging
 import tempfile
@@ -13,7 +12,6 @@ from pathlib import Path
 from time import sleep
 from typing import Any
 
-import psycopg2
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.schema import Document
 from minio import Minio
@@ -23,10 +21,11 @@ from rag_intelligence.config import EmbeddingSettings
 from rag_intelligence.db import (
     build_pgvector_data_table_name,
     create_vector_store,
+    default_conn_factory,
     ensure_pgvector_storage_contract,
 )
 from rag_intelligence.documents import build_document_manifest_key
-from rag_intelligence.minio_utils import ensure_bucket
+from rag_intelligence.minio_utils import ensure_bucket, load_minio_object, stream_text_lines
 from rag_intelligence.providers import ProviderRegistry
 from rag_intelligence.settings import AppSettings
 
@@ -99,35 +98,6 @@ def build_embedding_quality_report_key(dataset_prefix: str, run_id: str) -> str:
     return f"{build_embedding_object_prefix(dataset_prefix, run_id)}quality_report.json"
 
 
-def _stream_text_lines(response: Any, *, chunk_size: int = 64 * 1024) -> Iterator[str]:
-    decoder = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
-    buffer = ""
-
-    for chunk in response.stream(chunk_size):
-        if not chunk:
-            continue
-        buffer += decoder.decode(chunk)
-        while True:
-            newline_index = buffer.find("\n")
-            if newline_index == -1:
-                break
-            yield buffer[: newline_index + 1]
-            buffer = buffer[newline_index + 1 :]
-
-    buffer += decoder.decode(b"", final=True)
-    if buffer:
-        yield buffer
-
-
-def _load_source_response(client: Minio, bucket: str, object_key: str, *, label: str) -> Any:
-    try:
-        return client.get_object(bucket, object_key)
-    except KeyError as exc:
-        raise FileNotFoundError(f"{label} not found: {bucket}/{object_key}") from exc
-    except S3Error as exc:
-        if exc.code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket"}:
-            raise FileNotFoundError(f"{label} not found: {bucket}/{object_key}") from exc
-        raise
 
 
 def _download_source_object(
@@ -183,7 +153,7 @@ def load_document_manifest(client: Minio, settings: EmbeddingSettings) -> dict[s
         settings.document_dataset_prefix,
         settings.document_source_run_id,
     )
-    response = _load_source_response(
+    response = load_minio_object(
         client,
         settings.document_bucket,
         manifest_key,
@@ -290,16 +260,6 @@ def _extract_manifest_parts(manifest: dict[str, Any]) -> list[DocumentManifestPa
     return manifest_parts
 
 
-def _default_progress_conn_factory(app_settings: AppSettings) -> Any:
-    return psycopg2.connect(
-        host=app_settings.pg_host,
-        port=app_settings.pg_port,
-        user=app_settings.pg_user,
-        password=app_settings.pg_password,
-        dbname=app_settings.pg_database,
-    )
-
-
 def get_embedding_run_progress(
     app_settings: AppSettings,
     embedding_run_id: str,
@@ -307,7 +267,7 @@ def get_embedding_run_progress(
     *,
     conn_factory: Any = None,
 ) -> EmbeddingRunProgress:
-    factory = conn_factory or _default_progress_conn_factory
+    factory = conn_factory or default_conn_factory
     conn = factory(app_settings)
     try:
         cursor = conn.cursor()
@@ -433,14 +393,14 @@ def preview_document_batch(
 ) -> list[Document]:
     preview: list[Document] = []
     for part_key in part_keys:
-        response = _load_source_response(
+        response = load_minio_object(
             client,
             settings.document_bucket,
             part_key,
             label="Document part",
         )
         try:
-            for line_number, raw_line in enumerate(_stream_text_lines(response), start=1):
+            for line_number, raw_line in enumerate(stream_text_lines(response), start=1):
                 if not raw_line.strip():
                     continue
                 try:
@@ -474,23 +434,13 @@ def _ensure_vector_store_initialized(vector_store: Any) -> None:
         initialize()
 
 
-def _default_delete_conn_factory(app_settings: AppSettings) -> Any:
-    return psycopg2.connect(
-        host=app_settings.pg_host,
-        port=app_settings.pg_port,
-        user=app_settings.pg_user,
-        password=app_settings.pg_password,
-        dbname=app_settings.pg_database,
-    )
-
-
 def delete_embeddings_for_run(
     app_settings: AppSettings,
     embedding_run_id: str,
     *,
     conn_factory: Any = None,
 ) -> int:
-    factory = conn_factory or _default_delete_conn_factory
+    factory = conn_factory or default_conn_factory
     conn = factory(app_settings)
     try:
         cursor = conn.cursor()
