@@ -61,8 +61,12 @@ class TestEnsureSchema:
         assert conn.committed
         assert conn.closed
         queries = conn.cursor().queries
-        assert len(queries) == 1
+        assert len(queries) == 5
         assert "CREATE TABLE IF NOT EXISTS dataset_runs" in queries[0][0]
+        assert "ADD COLUMN IF NOT EXISTS artifact_prefix" in queries[1][0]
+        assert "ADD COLUMN IF NOT EXISTS manifest_key" in queries[2][0]
+        assert "DROP CONSTRAINT IF EXISTS dataset_runs_stage_check" in queries[3][0]
+        assert "CHECK (stage IN ('bronze', 'silver', 'gold', 'documents'))" in queries[4][0]
 
 
 class TestRegisterRun:
@@ -80,6 +84,8 @@ class TestRegisterRun:
             bucket="gold",
             source_run_id="20250115T110000Z",
             events_key="csgo/20250115T120000Z/events.parquet",
+            artifact_prefix="csgo/20250115T120000Z/documents/",
+            manifest_key="csgo/20250115T120000Z/documents/manifest.json",
             quality_report_key="csgo/20250115T120000Z/quality_report.json",
             files_processed=3,
             rows_read=1000,
@@ -99,7 +105,9 @@ class TestRegisterRun:
         assert "INSERT INTO dataset_runs" in query
         assert params[0] == "20250115T120000Z"
         assert params[1] == "gold"
-        assert params[11] == json.dumps({"missing_weapon": 10})
+        assert params[7] == "csgo/20250115T120000Z/documents/"
+        assert params[8] == "csgo/20250115T120000Z/documents/manifest.json"
+        assert params[13] == json.dumps({"missing_weapon": 10})
 
     def test_null_quality_summary(self) -> None:
         cursor = FakeCursor()
@@ -114,7 +122,7 @@ class TestRegisterRun:
         )
         register_run(_make_settings(), record, conn_factory=lambda _s: conn)
         _query, params = cursor.queries[0]
-        assert params[11] is None
+        assert params[13] is None
 
 
 class TestGetLatestRun:
@@ -132,6 +140,8 @@ class TestGetLatestRun:
                     "gold",
                     "src-run",
                     "events.parquet",
+                    "artifacts/",
+                    "manifest.json",
                     "quality_report.json",
                     3,
                     1000,
@@ -149,6 +159,8 @@ class TestGetLatestRun:
         assert result.id == 42
         assert result.run_id == "20250115T120000Z"
         assert result.stage == "gold"
+        assert result.artifact_prefix == "artifacts/"
+        assert result.manifest_key == "manifest.json"
         assert result.quality_summary == {"missing_weapon": 10}
         assert conn.closed
 
@@ -169,6 +181,8 @@ class TestGetLatestRun:
                     "completed",
                     "ds",
                     "silver",
+                    None,
+                    None,
                     None,
                     None,
                     "qr.json",

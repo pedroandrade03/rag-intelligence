@@ -94,9 +94,9 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class bronze,compose,importer,silver,gold,ollama implemented;
+    class bronze,compose,importer,silver,gold,fe,ollama implemented;
     class pg,api partial;
-    class fe,ingest,rag,ml,frontend,mlflow planned;
+    class ingest,rag,ml,frontend,mlflow planned;
 ```
 
 ### Pipeline de Dados
@@ -131,7 +131,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     gold["MinIO Gold<br/>Implementado"]
-    docs["Document(text, metadata)<br/>Planejado"]
+    docs["Document JSONL (text, metadata)<br/>Implementado"]
     ingest["IngestionPipeline<br/>(SentenceSplitter + EmbedModel)<br/>Planejado"]
     pgvector["PostgreSQL + pgvector<br/>Planejado"]
     index["VectorStoreIndex<br/>Planejado"]
@@ -150,9 +150,9 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class gold,ollama implemented;
+    class gold,docs,ollama implemented;
     class api partial;
-    class docs,ingest,pgvector,index,query,analytics,models planned;
+    class ingest,pgvector,index,query,analytics,models planned;
 ```
 
 ### Fluxo de Aplicação e MLOps
@@ -189,10 +189,70 @@ flowchart LR
 
 ### Estado Atual
 
-- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), importer Python, transformers Silver/Gold, MinIO local, Docker Compose, CI (ruff + pyright + pytest), 58 testes.
-- **Planejado**: PB05-PB08 (pipeline de IA/RAG), PB09-PB11 (API FastAPI + frontend Next.js), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
+- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), importer Python, transformers Silver/Gold/Documents, MinIO local, Docker Compose, CI (ruff + pyright + pytest).
+- **Planejado**: PB06-PB08 (pipeline de IA/RAG), PB09-PB11 (API FastAPI + frontend Next.js), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
 
 ---
+
+# ImplementaÃ§Ã£o PB05
+
+## Objetivo
+
+Transformar cada linha de `gold/<dataset_prefix>/<run_id>/curated/events.csv` em um document versionado com `doc_id`, `text` e `metadata`, persistindo os artefatos em JSONL particionado para uso posterior pela PB06/PB07.
+
+## PrÃ©-requisito
+
+- Executar PB03 antes da PB05.
+- Definir `GOLD_SOURCE_RUN_ID` com um run existente na Gold.
+
+## ConfiguraÃ§Ã£o
+
+VariÃ¡veis da PB05:
+
+- `GOLD_SOURCE_RUN_ID=` obrigatÃ³rio
+- `DOCUMENT_BUCKET=` opcional; se vazio usa `GOLD_BUCKET`
+- `DOCUMENT_DATASET_PREFIX=` opcional; se vazio usa `GOLD_DATASET_PREFIX` e depois `SILVER_DATASET_PREFIX` / `BRONZE_DATASET_PREFIX`
+- `DOCUMENT_RUN_ID=` opcional; se vazio usa `GOLD_SOURCE_RUN_ID`
+- `DOCUMENT_PART_SIZE_ROWS=100000` opcional; controla quantas linhas vÃ£o em cada `part-xxxxx.jsonl`
+
+## SaÃ­da
+
+Os documents sÃ£o gravados em:
+
+- `gold/<dataset_prefix>/<run_id>/documents/part-00001.jsonl`
+- `gold/<dataset_prefix>/<run_id>/documents/part-00002.jsonl`
+- `gold/<dataset_prefix>/<run_id>/documents/manifest.json`
+- `gold/<dataset_prefix>/<run_id>/documents/quality_report.json`
+
+Cada linha do JSONL segue o contrato:
+
+- `doc_id`: identificador estÃ¡vel no formato `<document_run_id>:<line_number>`
+- `text`: texto em pt-BR com termos tÃ©cnicos do jogo preservados
+- `metadata`: objeto JSON flat com contexto do evento e linhagem do artefato
+
+## ExecuÃ§Ã£o
+
+Via Docker Compose:
+
+```bash
+docker compose run --rm document-builder
+```
+
+Via Makefile:
+
+```bash
+make documents
+```
+
+## ValidaÃ§Ã£o
+
+Verifique no MinIO:
+
+- parts JSONL em `gold/<dataset_prefix>/<run_id>/documents/`
+- manifest em `gold/<dataset_prefix>/<run_id>/documents/manifest.json`
+- relatÃ³rio em `gold/<dataset_prefix>/<run_id>/documents/quality_report.json`
+
+O pipeline lÃª o `events.csv` em streaming, gera um document por evento da Gold, tipa metadados numÃ©ricos/booleanos quando possÃ­vel e registra a execuÃ§Ã£o no catÃ¡logo `dataset_runs` com `stage=documents`.
 
 # Implementação PB01
 

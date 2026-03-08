@@ -147,6 +147,72 @@ class GoldSettings:
         )
 
 
+@dataclass(frozen=True)
+class DocumentSettings:
+    minio_endpoint: str
+    minio_access_key: str
+    minio_secret_key: str
+    minio_secure: bool
+    gold_bucket: str
+    document_bucket: str
+    gold_dataset_prefix: str
+    document_dataset_prefix: str
+    gold_source_run_id: str
+    document_run_id: str
+    document_part_size_rows: int
+
+    @classmethod
+    def from_env(cls, env: dict[str, str] | None = None) -> DocumentSettings:
+        raw_env = dict(os.environ if env is None else env)
+
+        minio_endpoint = require_env(raw_env, "MINIO_ENDPOINT")
+        minio_access_key = require_env(raw_env, "MINIO_ACCESS_KEY")
+        minio_secret_key = require_env(raw_env, "MINIO_SECRET_KEY")
+        gold_source_run_id = require_env(raw_env, "GOLD_SOURCE_RUN_ID")
+
+        bronze_dataset_prefix = raw_env.get("BRONZE_DATASET_PREFIX", "").strip()
+        silver_dataset_prefix = (
+            raw_env.get("SILVER_DATASET_PREFIX", "").strip() or bronze_dataset_prefix
+        )
+        gold_dataset_prefix = (
+            raw_env.get("GOLD_DATASET_PREFIX", "").strip() or silver_dataset_prefix
+        )
+        if not gold_dataset_prefix:
+            raise ConfigError(
+                "Missing required environment variable: GOLD_DATASET_PREFIX "
+                "(or SILVER_DATASET_PREFIX / BRONZE_DATASET_PREFIX as fallback)"
+            )
+
+        document_dataset_prefix = (
+            raw_env.get("DOCUMENT_DATASET_PREFIX", "").strip() or gold_dataset_prefix
+        )
+        gold_bucket = raw_env.get("GOLD_BUCKET", "gold").strip() or "gold"
+        document_bucket = raw_env.get("DOCUMENT_BUCKET", "").strip() or gold_bucket
+        document_run_id = raw_env.get("DOCUMENT_RUN_ID", "").strip() or gold_source_run_id
+
+        part_size_raw = raw_env.get("DOCUMENT_PART_SIZE_ROWS", "100000").strip() or "100000"
+        try:
+            document_part_size_rows = int(part_size_raw)
+        except ValueError as err:
+            raise ConfigError(f"Invalid DOCUMENT_PART_SIZE_ROWS value: {part_size_raw}") from err
+        if document_part_size_rows <= 0:
+            raise ConfigError("DOCUMENT_PART_SIZE_ROWS must be greater than zero")
+
+        return cls(
+            minio_endpoint=minio_endpoint,
+            minio_access_key=minio_access_key,
+            minio_secret_key=minio_secret_key,
+            minio_secure=parse_bool(raw_env.get("MINIO_SECURE", "false")),
+            gold_bucket=gold_bucket,
+            document_bucket=document_bucket,
+            gold_dataset_prefix=gold_dataset_prefix,
+            document_dataset_prefix=document_dataset_prefix,
+            gold_source_run_id=gold_source_run_id,
+            document_run_id=document_run_id,
+            document_part_size_rows=document_part_size_rows,
+        )
+
+
 def require_env(env: dict[str, str], key: str) -> str:
     value = env.get(key, "").strip()
     if not value:

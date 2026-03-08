@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver gold ollama-pull otel-up otel-down otel-logs clean
+.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver gold documents ollama-pull otel-up otel-down otel-logs clean
 
 .DEFAULT_GOAL := help
 
@@ -51,6 +51,9 @@ silver: ## Run silver transformer job
 
 gold: ## Run gold transformer job
 	docker compose run --rm gold-transformer
+
+documents: ## Run document builder job
+	docker compose run --rm document-builder
 
 otel-up: ## Start observability stack (OTEL Collector + Jaeger + Prometheus + Grafana)
 	docker compose --profile observability up -d

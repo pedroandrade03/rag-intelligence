@@ -6,6 +6,7 @@ import pytest
 
 from rag_intelligence.config import (
     ConfigError,
+    DocumentSettings,
     GoldSettings,
     Settings,
     SilverSettings,
@@ -115,3 +116,53 @@ def test_gold_settings_require_dataset_prefix_when_fallbacks_are_missing() -> No
 
     with pytest.raises(ConfigError, match="SILVER_DATASET_PREFIX"):
         GoldSettings.from_env(env)
+
+
+def test_document_settings_require_gold_source_run_id() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = ""
+
+    with pytest.raises(ConfigError, match="GOLD_SOURCE_RUN_ID"):
+        DocumentSettings.from_env(env)
+
+
+def test_document_settings_use_expected_defaults() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260306T025119Z"
+
+    settings = DocumentSettings.from_env(env)
+
+    assert settings.gold_bucket == "gold"
+    assert settings.document_bucket == "gold"
+    assert settings.gold_dataset_prefix == "csgo-matchmaking-damage"
+    assert settings.document_dataset_prefix == "csgo-matchmaking-damage"
+    assert settings.gold_source_run_id == "20260306T025119Z"
+    assert settings.document_run_id == "20260306T025119Z"
+    assert settings.document_part_size_rows == 100000
+
+
+def test_document_settings_support_overrides() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260306T025119Z"
+    env["GOLD_BUCKET"] = "gold"
+    env["GOLD_DATASET_PREFIX"] = "gold-prefix"
+    env["DOCUMENT_BUCKET"] = "documents"
+    env["DOCUMENT_DATASET_PREFIX"] = "doc-prefix"
+    env["DOCUMENT_RUN_ID"] = "20260308T120000Z"
+    env["DOCUMENT_PART_SIZE_ROWS"] = "2500"
+
+    settings = DocumentSettings.from_env(env)
+
+    assert settings.document_bucket == "documents"
+    assert settings.document_dataset_prefix == "doc-prefix"
+    assert settings.document_run_id == "20260308T120000Z"
+    assert settings.document_part_size_rows == 2500
+
+
+def test_document_settings_require_positive_part_size() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260306T025119Z"
+    env["DOCUMENT_PART_SIZE_ROWS"] = "0"
+
+    with pytest.raises(ConfigError, match="greater than zero"):
+        DocumentSettings.from_env(env)

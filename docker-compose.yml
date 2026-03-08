@@ -193,6 +193,37 @@ services:
       PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
       PG_DATABASE: ${PG_DATABASE:-ragdb}
 
+  document-builder:
+    build:
+      context: .
+    command: ["document-build"]
+    profiles:
+      - jobs
+    depends_on:
+      minio:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+    environment:
+      MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      GOLD_BUCKET: ${GOLD_BUCKET:-gold}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      SILVER_DATASET_PREFIX: ${SILVER_DATASET_PREFIX:-}
+      GOLD_DATASET_PREFIX: ${GOLD_DATASET_PREFIX:-}
+      GOLD_SOURCE_RUN_ID: ${GOLD_SOURCE_RUN_ID:-}
+      DOCUMENT_BUCKET: ${DOCUMENT_BUCKET:-}
+      DOCUMENT_DATASET_PREFIX: ${DOCUMENT_DATASET_PREFIX:-}
+      DOCUMENT_RUN_ID: ${DOCUMENT_RUN_ID:-}
+      DOCUMENT_PART_SIZE_ROWS: ${DOCUMENT_PART_SIZE_ROWS:-100000}
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+
 volumes:
   minio-data:
   tsdb-data:
