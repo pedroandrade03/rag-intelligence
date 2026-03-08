@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 OLLAMA_LLM_FALLBACK = "ollama/qwen2.5"
-OLLAMA_EMBED_FALLBACK = "ollama/nomic-embed"
+OLLAMA_EMBED_FALLBACK = "ollama/nomic-embed-text"
 
 
 class ProviderRegistry:
@@ -116,6 +116,10 @@ class ProviderRegistry:
             from llama_index.embeddings.ollama import OllamaEmbedding
 
             model_name = key.removeprefix("ollama/")
-            return OllamaEmbedding(model_name=model_name, base_url=self._settings.ollama_base_url)
+            return OllamaEmbedding(
+                model_name=model_name,
+                base_url=self._settings.ollama_base_url,
+                embed_batch_size=self._settings.ollama_embed_batch_size,
+            )
 
         raise ValueError(f"Unknown embedding provider: {key}")

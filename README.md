@@ -52,12 +52,12 @@ flowchart LR
         bronze["MinIO Bronze<br/>Implementado"]
         silver["MinIO Silver<br/>Implementado"]
         gold["MinIO Gold<br/>Implementado"]
-        pg["PostgreSQL + pgvector<br/>Parcial (metadados)"]
+        pg["PostgreSQL + pgvector<br/>Implementado"]
     end
 
     subgraph ia[Camada de IA — LlamaIndex]
-        fe["Construção de Documents<br/>Planejado"]
-        ingest["IngestionPipeline<br/>(embed + store)<br/>Planejado"]
+        fe["Construção de Documents<br/>Implementado"]
+        ingest["IngestionPipeline<br/>(embed + store)<br/>Implementado"]
         rag["QueryEngine / ChatEngine<br/>Planejado"]
         ml["Analytics e Modelos<br/>Planejado"]
     end
@@ -94,9 +94,9 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class bronze,compose,importer,silver,gold,ollama implemented;
-    class pg,api partial;
-    class fe,ingest,rag,ml,frontend,mlflow planned;
+    class bronze,compose,importer,silver,gold,pg,fe,ingest,ollama implemented;
+    class api partial;
+    class rag,ml,frontend,mlflow planned;
 ```
 
 ### Pipeline de Dados
@@ -110,7 +110,7 @@ flowchart LR
     bronzeExtracted["MinIO Bronze / extracted<br/>Implementado"]
     silver["MinIO Silver<br/>Implementado"]
     gold["MinIO Gold<br/>Implementado"]
-    pg["PostgreSQL + pgvector<br/>Parcial (metadados)"]
+    pg["PostgreSQL + pgvector<br/>Implementado"]
 
     kaggle --> zip --> importer
     importer --> bronzeRaw
@@ -122,8 +122,7 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
-    class zip,importer,bronzeRaw,bronzeExtracted,silver,gold implemented;
-    class pg partial;
+    class zip,importer,bronzeRaw,bronzeExtracted,silver,gold,pg implemented;
 ```
 
 ### Pipeline de IA e RAG
@@ -131,9 +130,9 @@ flowchart LR
 ```mermaid
 flowchart LR
     gold["MinIO Gold<br/>Implementado"]
-    docs["Document(text, metadata)<br/>Planejado"]
-    ingest["IngestionPipeline<br/>(SentenceSplitter + EmbedModel)<br/>Planejado"]
-    pgvector["PostgreSQL + pgvector<br/>Planejado"]
+    docs["Document JSONL (text, metadata)<br/>Implementado"]
+    ingest["IngestionPipeline<br/>(1 document = 1 embedding)<br/>Implementado"]
+    pgvector["PostgreSQL + pgvector<br/>Implementado"]
     index["VectorStoreIndex<br/>Planejado"]
     query["QueryEngine / ChatEngine<br/>Planejado"]
     ollama["Ollama<br/>Implementado"]
@@ -150,9 +149,9 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class gold,ollama implemented;
+    class gold,docs,ingest,pgvector,ollama implemented;
     class api partial;
-    class docs,ingest,pgvector,index,query,analytics,models planned;
+    class index,query,analytics,models planned;
 ```
 
 ### Fluxo de Aplicação e MLOps
@@ -163,7 +162,7 @@ flowchart LR
     frontend["Frontend Next.js<br/>Planejado"]
     api["FastAPI + Streaming<br/>Parcial"]
     query["LlamaIndex QueryEngine<br/>Planejado"]
-    pgvector["PostgreSQL + pgvector<br/>Planejado"]
+    pgvector["PostgreSQL + pgvector<br/>Implementado"]
     ollama["Ollama<br/>Implementado"]
     gold["MinIO Gold<br/>Implementado"]
     models["Modelos preditivos<br/>Planejado"]
@@ -182,17 +181,311 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class gold,ollama implemented;
+    class gold,pgvector,ollama implemented;
     class api partial;
-    class frontend,query,pgvector,models,mlflow planned;
+    class frontend,query,models,mlflow planned;
 ```
 
 ### Estado Atual
 
-- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), importer Python, transformers Silver/Gold, MinIO local, Docker Compose, CI (ruff + pyright + pytest), 58 testes.
-- **Planejado**: PB05-PB08 (pipeline de IA/RAG), PB09-PB11 (API FastAPI + frontend Next.js), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
+- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI sobre pgvector), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, CI (ruff + pyright + pytest).
+- **Planejado**: PB09-PB11 (API FastAPI + frontend Next.js), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
 
 ---
+
+# ImplementaÃ§Ã£o PB05
+
+## Objetivo
+
+Transformar cada linha de `gold/<dataset_prefix>/<run_id>/curated/events.csv` em um document versionado com `doc_id`, `text` e `metadata`, persistindo os artefatos em JSONL particionado para uso posterior pela PB06/PB07.
+
+## PrÃ©-requisito
+
+- Executar PB03 antes da PB05.
+- Definir `GOLD_SOURCE_RUN_ID` com um run existente na Gold.
+
+## ConfiguraÃ§Ã£o
+
+VariÃ¡veis da PB05:
+
+- `GOLD_SOURCE_RUN_ID=` obrigatÃ³rio
+- `DOCUMENT_BUCKET=` opcional; se vazio usa `GOLD_BUCKET`
+- `DOCUMENT_DATASET_PREFIX=` opcional; se vazio usa `GOLD_DATASET_PREFIX` e depois `SILVER_DATASET_PREFIX` / `BRONZE_DATASET_PREFIX`
+- `DOCUMENT_RUN_ID=` opcional; se vazio usa `GOLD_SOURCE_RUN_ID`
+- `DOCUMENT_PART_SIZE_ROWS=100000` opcional; controla quantas linhas vÃ£o em cada `part-xxxxx.jsonl`
+- `DOCUMENT_MAX_ROWS=` opcional; limita quantas linhas da Gold serao convertidas em documents para smoke test
+
+## SaÃ­da
+
+Os documents sÃ£o gravados em:
+
+- `gold/<dataset_prefix>/<run_id>/documents/part-00001.jsonl`
+- `gold/<dataset_prefix>/<run_id>/documents/part-00002.jsonl`
+- `gold/<dataset_prefix>/<run_id>/documents/manifest.json`
+- `gold/<dataset_prefix>/<run_id>/documents/quality_report.json`
+
+Cada linha do JSONL segue o contrato:
+
+- `doc_id`: identificador estÃ¡vel no formato `<document_run_id>:<line_number>`
+- `text`: texto em pt-BR com termos tÃ©cnicos do jogo preservados
+- `metadata`: objeto JSON flat com contexto do evento e linhagem do artefato
+
+## ExecuÃ§Ã£o
+
+Via Docker Compose:
+
+```bash
+docker compose run --rm document-builder
+```
+
+Via Makefile:
+
+```bash
+make documents
+```
+
+## ValidaÃ§Ã£o
+
+Verifique no MinIO:
+
+- parts JSONL em `gold/<dataset_prefix>/<run_id>/documents/`
+- manifest em `gold/<dataset_prefix>/<run_id>/documents/manifest.json`
+- relatÃ³rio em `gold/<dataset_prefix>/<run_id>/documents/quality_report.json`
+
+Smoke rapido:
+
+```bash
+docker compose run --rm -e DOCUMENT_MAX_ROWS=25 -e DOCUMENT_RUN_ID=documents-smoke document-builder
+make documents-smoke
+```
+
+O pipeline lÃª o `events.csv` em streaming, gera um document por evento da Gold, tipa metadados numÃ©ricos/booleanos quando possÃ­vel e registra a execuÃ§Ã£o no catÃ¡logo `dataset_runs` com `stage=documents`.
+
+# Implementacao PB06
+
+## Objetivo
+
+Ler um run explicito da PB05 via `documents/manifest.json`, reconstruir `1 document = 1 node`, gerar embeddings com `DEFAULT_EMBED_MODEL` via `ProviderRegistry` e persistir tudo em uma unica tabela pgvector (`PG_TABLE_NAME`) com metadata completa e rastreavel por `embedding_run_id`.
+
+## Pre-requisito
+
+- Executar PB05 antes da PB06.
+- Definir `DOCUMENT_SOURCE_RUN_ID` com um run existente da camada Documents.
+
+## Configuracao
+
+Variaveis da PB06:
+
+- `DOCUMENT_SOURCE_RUN_ID=` obrigatorio
+- `EMBEDDING_RUN_ID=` opcional; se vazio usa `DOCUMENT_SOURCE_RUN_ID`
+- `DOCUMENT_BUCKET=` opcional; se vazio usa `GOLD_BUCKET`
+- `DOCUMENT_DATASET_PREFIX=` opcional; se vazio usa `GOLD_DATASET_PREFIX` e depois `SILVER_DATASET_PREFIX` / `BRONZE_DATASET_PREFIX`
+- `EMBEDDING_REPORT_BUCKET=` opcional; se vazio usa `DOCUMENT_BUCKET`
+- `EMBEDDING_DATASET_PREFIX=` opcional; se vazio usa `DOCUMENT_DATASET_PREFIX`
+- `EMBEDDING_BATCH_SIZE=256` opcional
+- `EMBEDDING_NUM_WORKERS=4` opcional; controla o paralelismo interno do `pipeline.run(...)`
+- `EMBEDDING_PARALLEL_BATCHES=4` opcional; controla quantos batches de embedding podem rodar em paralelo
+- `OLLAMA_EMBED_BATCH_SIZE=32` opcional; controla o batch real enviado ao Ollama e costuma impactar mais o throughput do que aumentar apenas `EMBEDDING_BATCH_SIZE`
+- `EMBEDDING_MAX_DOCUMENTS=` opcional; limita quantos documents do manifest serao indexados para smoke test
+- `EMBEDDING_RESUME=false` opcional; quando `true`, continua do maior `node_id` ja persistido para o `embedding_run_id`, sem apagar o progresso existente
+- `PG_TABLE_NAME=` nome da tabela vetorial unica
+- `PG_EMBED_DIM=` dimensao esperada do vetor
+- `DEFAULT_EMBED_MODEL=` modelo de embedding usado pelo pipeline
+
+## Saida
+
+Os artefatos operacionais da PB06 sao gravados em:
+
+- `gold/<dataset_prefix>/<run_id>/embeddings/manifest.json`
+- `gold/<dataset_prefix>/<run_id>/embeddings/quality_report.json`
+
+Os vetores nao vao para o MinIO. Eles sao persistidos no PostgreSQL + pgvector na tabela unica configurada por `PG_TABLE_NAME`, com filtros por metadata JSONB.
+
+## Execucao
+
+Via Docker Compose:
+
+```bash
+docker compose run --rm embedding-ingestor
+```
+
+Via Makefile:
+
+```bash
+make embeddings
+```
+
+Smoke rapido:
+
+```bash
+docker compose run --rm -e DOCUMENT_SOURCE_RUN_ID=documents-smoke -e EMBEDDING_MAX_DOCUMENTS=25 -e EMBEDDING_RUN_ID=embeddings-smoke embedding-ingestor
+make embeddings-smoke
+```
+
+Retomar um run parcial sem apagar:
+
+```bash
+docker compose run --rm -e DOCUMENT_SOURCE_RUN_ID=20260308T065422Z -e EMBEDDING_RUN_ID=20260308T092115Z -e EMBEDDING_RESUME=true embedding-ingestor
+```
+
+Para maquina local com Ollama em CPU, a configuracao recomendada hoje e:
+
+- `EMBEDDING_BATCH_SIZE=128` ou `256`
+- `EMBEDDING_NUM_WORKERS=4`
+- `EMBEDDING_PARALLEL_BATCHES=4`
+- `OLLAMA_EMBED_BATCH_SIZE=128` ou `256`
+
+Subir so `EMBEDDING_BATCH_SIZE` sem ajustar `OLLAMA_EMBED_BATCH_SIZE` tende a ajudar pouco, porque o adapter do Ollama continua fatiando os textos internamente. Para aproveitar mais CPU, a PB06 agora tambem consegue processar batches de embedding em paralelo e serializar apenas a escrita no pgvector.
+
+## Validacao
+
+Verifique no MinIO:
+
+- manifest em `gold/<dataset_prefix>/<run_id>/embeddings/manifest.json`
+- relatorio em `gold/<dataset_prefix>/<run_id>/embeddings/quality_report.json`
+
+Verifique no PostgreSQL:
+
+- linhas na tabela vetorial com `metadata.embedding_run_id = <run_id>`
+- metadata preservando `doc_id`, `event_type`, `map`, `file`, `round` e `source_file`
+
+Por padrao, o pipeline faz delete + reinsert por `embedding_run_id`. Quando `EMBEDDING_RESUME=true`, ele consulta o progresso ja persistido, valida se o run existente esta contiguo desde o document `1` e continua dali sem apagar. A execucao segue registrando metadata em `dataset_runs` no fim do job. A PB07 endurece esse mesmo caminho com contrato explicito da tabela vetorial e indices BTREE para filtros de metadata.
+
+# Implementacao PB07
+
+## Objetivo
+
+Endurecer o armazenamento vetorial da PB06 sem criar pipeline novo, garantindo contrato estavel para a tabela unica `public.data_<PG_TABLE_NAME>` e indices oficiais para os filtros que a PB08 vai usar.
+
+## O que foi endurecido
+
+- a tabela vetorial continua unica e versionada por metadata, sem tabela por run
+- o indice HNSW de `embedding` foi preservado
+- o pipeline passou a garantir os seguintes indices BTREE:
+  - `metadata_->>'embedding_run_id'`
+  - `metadata_->>'event_type'`
+  - `metadata_->>'map'`
+  - `metadata_->>'file'`
+  - `((metadata_->>'round')::integer)` com filtro parcial seguro
+- o bootstrap do storage roda dentro do `embedding-ingest`, depois da inicializacao do `PGVectorStore` e antes do `delete + reinsert`
+- tabelas antigas da PB06 sao corrigidas in-place com `CREATE INDEX IF NOT EXISTS`, sem recriar tabela e sem apagar vetores
+
+## Contrato da tabela vetorial
+
+- tabela fisica: `public.data_<PG_TABLE_NAME>`
+- politica de reprocessamento: `delete + reinsert` por `embedding_run_id`, com resume opcional quando `EMBEDDING_RESUME=true`
+- filtros oficialmente suportados/otimizados:
+  - `embedding_run_id`
+  - `event_type`
+  - `map`
+  - `file`
+  - `round`
+
+## Observabilidade
+
+Os artefatos operacionais da PB06/PB07 agora registram tambem:
+
+- `pg_data_table_name`
+- `ensured_indexes`
+
+Esses campos aparecem em:
+
+- `gold/<dataset_prefix>/<run_id>/embeddings/manifest.json`
+- `gold/<dataset_prefix>/<run_id>/embeddings/quality_report.json`
+
+## Validacao
+
+Depois de rodar `docker compose run --rm --build embedding-ingestor`, valide no PostgreSQL:
+
+```sql
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND tablename = 'data_rag_embeddings';
+```
+
+E confira a presenca dos indices:
+
+- `data_rag_embeddings_meta_embedding_run_id_idx`
+- `data_rag_embeddings_meta_event_type_idx`
+- `data_rag_embeddings_meta_map_idx`
+- `data_rag_embeddings_meta_file_idx`
+- `data_rag_embeddings_meta_round_int_idx`
+
+# Implementacao PB08
+
+## Objetivo
+
+Validar o RAG localmente com busca semantica sobre a tabela vetorial existente, sem criar endpoint HTTP ainda e sem sintetizar resposta com LLM.
+
+## Interface
+
+Novo comando local:
+
+```bash
+semantic-search --query "dano de ak47 no inferno" --embedding-run-id embeddings-smoke --top-k 3
+```
+
+Via Docker Compose:
+
+```bash
+docker compose run --rm semantic-searcher --query "dano de ak47 no inferno" --embedding-run-id embeddings-smoke --top-k 3
+```
+
+Via Makefile:
+
+```bash
+make search QUERY="dano de ak47 no inferno" EMBEDDING_RUN_ID="embeddings-smoke"
+```
+
+Filtros opcionais suportados:
+
+- `--event-type`
+- `--map`
+- `--file`
+- `--round`
+
+## Saida
+
+A resposta sai em JSON no stdout com:
+
+- `query`
+- `embedding_run_id`
+- `top_k`
+- `filters`
+- `results_returned`
+- `retrieval_ms`
+- `results`
+
+Cada item de `results` inclui `rank`, `score`, `doc_id`, `text`, `event_type`, `map`, `file`, `round`, `source_file` e `metadata` sanitizada.
+
+## Comportamento
+
+- o `embedding_run_id` e obrigatorio e sempre entra como filtro
+- a busca usa o `ProviderRegistry` para embeddar a query
+- o retrieval consulta apenas `public.data_<PG_TABLE_NAME>`
+- a metadata da resposta remove chaves internas do LlamaIndex que comecam com `_`
+- resultado vazio nao e erro; retorna `results: []`
+
+## Validacao
+
+Smoke recomendado:
+
+```bash
+make documents-smoke
+make embeddings-smoke
+make search QUERY="dano de ak47 no inferno" EMBEDDING_RUN_ID="embeddings-smoke"
+```
+
+Se quiser um smoke mais representativo sem ir para a base toda, rode com override:
+
+```bash
+DOCUMENT_MAX_ROWS=100 make documents-smoke
+DOCUMENT_SOURCE_RUN_ID=documents-smoke EMBEDDING_MAX_DOCUMENTS=100 OLLAMA_EMBED_BATCH_SIZE=32 make embeddings-smoke
+make search QUERY="dano de ak47" EMBEDDING_RUN_ID="embeddings-smoke"
+```
+
+A PB08 entrega retrieval local reutilizavel para a PB09, que depois expora essa mesma logica via FastAPI.
 
 # Implementação PB01
 
@@ -384,8 +677,8 @@ O pipeline aplica `event_type` por tipo de arquivo, fallback de arma (`wp` -> `n
 | ---- | --------------------------------------------------------------------------------------- | ------------------------ | --------------------------------- | ---- |
 | PB05 | Como desenvolvedor, quero transformar eventos de combate em representações estruturadas | IA (Document construction) | Documents com texto e metadados gerados a partir do Gold | Lógica de negócio |
 | PB06 | Como desenvolvedor, quero gerar embeddings de eventos de combate para busca semântica   | IA (LlamaIndex IngestionPipeline) | Embeddings criados e inseridos no pgvector | Configuração |
-| PB07 | Como desenvolvedor, quero armazenar embeddings no banco vetorial                        | Dados (PostgreSQL + pgvector) | Vetores indexados no PostgreSQL com pgvector | Configuração (mesmo pipeline do PB06) |
-| PB08 | Como usuário, quero buscar eventos similares de combate                                 | IA (LlamaIndex QueryEngine) | QueryEngine retorna eventos similares via API | Configuração |
+| PB07 | Como desenvolvedor, quero armazenar embeddings no banco vetorial                        | Dados (PostgreSQL + pgvector) | Vetores indexados no PostgreSQL com pgvector e filtros de metadata otimizados | Hardening do storage vetorial |
+| PB08 | Como usuário, quero buscar eventos similares de combate                                 | IA (Retrieval local sobre pgvector) | CLI retorna eventos similares com score e metadata filtrável | Retrieval local |
 
 ---
 

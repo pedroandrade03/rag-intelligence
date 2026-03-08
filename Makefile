@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver gold ollama-pull otel-up otel-down otel-logs clean
+.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search ollama-pull otel-up otel-down otel-logs clean
 
 .DEFAULT_GOAL := help
 
@@ -51,6 +51,21 @@ silver: ## Run silver transformer job
 
 gold: ## Run gold transformer job
 	docker compose run --rm gold-transformer
+
+documents: ## Run document builder job
+	docker compose run --rm document-builder
+
+documents-smoke: ## Run document builder with a small row limit
+	docker compose run --rm -e DOCUMENT_MAX_ROWS=$${DOCUMENT_MAX_ROWS:-25} -e DOCUMENT_RUN_ID=$${DOCUMENT_RUN_ID:-documents-smoke} document-builder
+
+embeddings: ## Run embedding ingestor job
+	docker compose run --rm embedding-ingestor
+
+embeddings-smoke: ## Run embedding ingestor with a small document limit
+	docker compose run --rm -e DOCUMENT_SOURCE_RUN_ID=$${DOCUMENT_SOURCE_RUN_ID:-documents-smoke} -e EMBEDDING_MAX_DOCUMENTS=$${EMBEDDING_MAX_DOCUMENTS:-25} -e EMBEDDING_RUN_ID=$${EMBEDDING_RUN_ID:-embeddings-smoke} embedding-ingestor
+
+search: ## Run semantic search against pgvector
+	docker compose run --rm semantic-searcher --query "$(QUERY)" --embedding-run-id "$(EMBEDDING_RUN_ID)" $(SEARCH_ARGS)
 
 otel-up: ## Start observability stack (OTEL Collector + Jaeger + Prometheus + Grafana)
 	docker compose --profile observability up -d

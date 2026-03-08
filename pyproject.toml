@@ -23,6 +23,7 @@ dependencies = [
   "llama-index-embeddings-ollama>=0.8",
   "llama-index-embeddings-voyageai>=0.5",
   "asyncpg>=0.31",
+  "psycopg2-binary>=2.9",
   "sqlalchemy[asyncio]>=2.0",
   "pgvector>=0.4",
   "pydantic>=2.0",
@@ -46,6 +47,9 @@ dev = [
 bronze-import = "rag_intelligence.cli:main"
 silver-transform = "rag_intelligence.silver_cli:main"
 gold-transform = "rag_intelligence.gold_cli:main"
+document-build = "rag_intelligence.document_cli:main"
+embedding-ingest = "rag_intelligence.embedding_cli:main"
+semantic-search = "rag_intelligence.search_cli:main"
 rag-api = "rag_intelligence.api.main:run"
 
 [tool.setuptools]

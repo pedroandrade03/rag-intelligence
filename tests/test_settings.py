@@ -15,6 +15,7 @@ def base_env() -> dict[str, str]:
         "PG_TABLE_NAME": "test_vectors",
         "PG_EMBED_DIM": "768",
         "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_EMBED_BATCH_SIZE": "32",
         "MINIO_ENDPOINT": "localhost:9000",
         "MINIO_ACCESS_KEY": "minioadmin",
         "MINIO_SECRET_KEY": "minioadmin",
@@ -24,7 +25,7 @@ def base_env() -> dict[str, str]:
         "ANTHROPIC_API_KEY": "",
         "VOYAGE_API_KEY": "",
         "DEFAULT_LLM": "ollama/qwen2.5",
-        "DEFAULT_EMBED_MODEL": "ollama/nomic-embed",
+        "DEFAULT_EMBED_MODEL": "ollama/nomic-embed-text",
         "API_HOST": "0.0.0.0",
         "API_PORT": "8000",
     }
@@ -39,6 +40,7 @@ def test_from_env_with_all_values():
     assert settings.pg_user == "testuser"
     assert settings.pg_database == "testdb"
     assert settings.pg_embed_dim == 768
+    assert settings.ollama_embed_batch_size == 32
     assert settings.minio_secure is False
     assert settings.default_llm == "ollama/qwen2.5"
 
@@ -52,6 +54,7 @@ def test_from_env_uses_defaults_when_keys_absent():
     assert settings.pg_database == "ragdb"
     assert settings.pg_embed_dim == 768
     assert settings.ollama_base_url == "http://localhost:11434"
+    assert settings.ollama_embed_batch_size == 32
     assert settings.default_llm == "ollama/qwen2.5"
     assert settings.api_port == 8000
 
@@ -61,6 +64,14 @@ def test_invalid_integer_raises_settings_error():
     env["PG_PORT"] = "not_a_number"
 
     with pytest.raises(SettingsError, match="Invalid integer"):
+        AppSettings.from_env(env)
+
+
+def test_invalid_ollama_embed_batch_size_raises_settings_error():
+    env = base_env()
+    env["OLLAMA_EMBED_BATCH_SIZE"] = "0"
+
+    with pytest.raises(SettingsError, match="OLLAMA_EMBED_BATCH_SIZE must be greater than zero"):
         AppSettings.from_env(env)
 
 

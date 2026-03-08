@@ -21,6 +21,7 @@ class AppSettings:
 
     # Ollama
     ollama_base_url: str
+    ollama_embed_batch_size: int
 
     # MinIO
     minio_endpoint: str
@@ -54,6 +55,7 @@ class AppSettings:
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> AppSettings:
         raw = dict(os.environ if env is None else env)
+        ollama_embed_batch_size = _parse_positive_int(raw, "OLLAMA_EMBED_BATCH_SIZE", 32)
 
         return cls(
             pg_host=raw.get("PG_HOST", "localhost"),
@@ -64,6 +66,7 @@ class AppSettings:
             pg_table_name=raw.get("PG_TABLE_NAME", "rag_embeddings"),
             pg_embed_dim=_parse_int(raw, "PG_EMBED_DIM", 768),
             ollama_base_url=raw.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+            ollama_embed_batch_size=ollama_embed_batch_size,
             minio_endpoint=raw.get("MINIO_ENDPOINT", "localhost:9000"),
             minio_access_key=raw.get("MINIO_ACCESS_KEY", "minioadmin"),
             minio_secret_key=raw.get("MINIO_SECRET_KEY", "minioadmin"),
@@ -73,7 +76,7 @@ class AppSettings:
             anthropic_api_key=raw.get("ANTHROPIC_API_KEY", "").strip(),
             voyage_api_key=raw.get("VOYAGE_API_KEY", "").strip(),
             default_llm=raw.get("DEFAULT_LLM", "ollama/qwen2.5"),
-            default_embed_model=raw.get("DEFAULT_EMBED_MODEL", "ollama/nomic-embed"),
+            default_embed_model=raw.get("DEFAULT_EMBED_MODEL", "ollama/nomic-embed-text"),
             api_host=raw.get("API_HOST", "0.0.0.0"),
             api_port=_parse_int(raw, "API_PORT", 8000),
             cors_origins=_parse_cors_origins(raw.get("CORS_ORIGINS", "*")),
@@ -92,6 +95,13 @@ def _parse_int(env: dict[str, str], key: str, default: int) -> int:
         return int(raw)
     except ValueError as err:
         raise SettingsError(f"Invalid integer for {key}: {raw}") from err
+
+
+def _parse_positive_int(env: dict[str, str], key: str, default: int) -> int:
+    value = _parse_int(env, key, default)
+    if value <= 0:
+        raise SettingsError(f"{key} must be greater than zero")
+    return value
 
 
 def _parse_bool(value: str) -> bool:

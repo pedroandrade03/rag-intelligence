@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,18 @@ from typing import Any
 @dataclass(frozen=True)
 class FakeObject:
     object_name: str
+
+
+class FakeObjectResponse(io.BytesIO):
+    def stream(self, amt: int = 8192):
+        while True:
+            chunk = self.read(amt)
+            if not chunk:
+                break
+            yield chunk
+
+    def release_conn(self) -> None:
+        return None
 
 
 class FakeMinio:
@@ -46,6 +59,10 @@ class FakeMinio:
         path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+
+    def get_object(self, bucket_name: str, object_name: str) -> FakeObjectResponse:
+        data = self.objects[bucket_name][object_name]
+        return FakeObjectResponse(data)
 
     def fput_object(
         self,
