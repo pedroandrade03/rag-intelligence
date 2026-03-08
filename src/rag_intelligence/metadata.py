@@ -10,7 +10,7 @@ import psycopg2
 
 from rag_intelligence.config import ConfigError
 
-_STAGE_CHECK = "'bronze', 'silver', 'gold', 'documents'"
+_STAGE_CHECK = "'bronze', 'silver', 'gold', 'documents', 'embeddings'"
 
 _CREATE_TABLE = f"""\
 CREATE TABLE IF NOT EXISTS dataset_runs (

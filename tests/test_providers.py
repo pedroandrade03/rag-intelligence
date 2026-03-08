@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+import types
+
 from rag_intelligence.providers import ProviderRegistry
 from rag_intelligence.settings import AppSettings
 
@@ -11,7 +14,8 @@ def _settings(**overrides: str) -> AppSettings:
         "ANTHROPIC_API_KEY": "",
         "VOYAGE_API_KEY": "",
         "DEFAULT_LLM": "ollama/qwen2.5",
-        "DEFAULT_EMBED_MODEL": "ollama/nomic-embed",
+        "DEFAULT_EMBED_MODEL": "ollama/nomic-embed-text",
+        "OLLAMA_EMBED_BATCH_SIZE": "32",
     }
     defaults.update(overrides)
     return AppSettings.from_env(defaults)
@@ -44,7 +48,7 @@ def test_available_embeddings_only_ollama_when_no_api_keys():
     registry = ProviderRegistry(_settings())
     embeds = registry.available_embeddings()
 
-    assert "ollama/nomic-embed" in embeds
+    assert "ollama/nomic-embed-text" in embeds
     assert "text-embedding-3-small" not in embeds
     assert "voyage-3" not in embeds
 
@@ -81,4 +85,34 @@ def test_get_embed_model_unknown_falls_back_to_ollama():
     registry = ProviderRegistry(_settings())
     model = registry.get_embed_model("nonexistent-embed")
     assert model is not None
-    assert "ollama/nomic-embed" in registry._embed_cache
+    assert "ollama/nomic-embed-text" in registry._embed_cache
+
+
+def test_get_embed_model_passes_ollama_batch_size(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeOllamaEmbedding:
+        def __init__(
+            self,
+            *,
+            model_name: str,
+            base_url: str,
+            embed_batch_size: int,
+        ) -> None:
+            captured["model_name"] = model_name
+            captured["base_url"] = base_url
+            captured["embed_batch_size"] = embed_batch_size
+
+    fake_module = types.ModuleType("llama_index.embeddings.ollama")
+    fake_module.OllamaEmbedding = FakeOllamaEmbedding
+    monkeypatch.setitem(sys.modules, "llama_index.embeddings.ollama", fake_module)
+
+    registry = ProviderRegistry(_settings(OLLAMA_EMBED_BATCH_SIZE="64"))
+    model = registry.get_embed_model("ollama/nomic-embed-text")
+
+    assert isinstance(model, FakeOllamaEmbedding)
+    assert captured == {
+        "model_name": "nomic-embed-text",
+        "base_url": "http://localhost:11434",
+        "embed_batch_size": 64,
+    }

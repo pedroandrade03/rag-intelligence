@@ -66,7 +66,10 @@ class TestEnsureSchema:
         assert "ADD COLUMN IF NOT EXISTS artifact_prefix" in queries[1][0]
         assert "ADD COLUMN IF NOT EXISTS manifest_key" in queries[2][0]
         assert "DROP CONSTRAINT IF EXISTS dataset_runs_stage_check" in queries[3][0]
-        assert "CHECK (stage IN ('bronze', 'silver', 'gold', 'documents'))" in queries[4][0]
+        assert (
+            "CHECK (stage IN ('bronze', 'silver', 'gold', 'documents', 'embeddings'))"
+            in queries[4][0]
+        )
 
 
 class TestRegisterRun:

@@ -61,11 +61,12 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-bronze}
       MINIO_SECURE: ${MINIO_SECURE:-false}
       OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
       DEFAULT_LLM: ${DEFAULT_LLM:-ollama/qwen2.5}
-      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed}
+      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_ENDPOINT: http://otel-collector:4318
 
@@ -223,6 +224,75 @@ services:
       PG_USER: ${PG_USER:-raguser}
       PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
       PG_DATABASE: ${PG_DATABASE:-ragdb}
+
+  embedding-ingestor:
+    build:
+      context: .
+    command: ["embedding-ingest"]
+    profiles:
+      - jobs
+    depends_on:
+      minio:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      GOLD_BUCKET: ${GOLD_BUCKET:-gold}
+      DOCUMENT_BUCKET: ${DOCUMENT_BUCKET:-}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      SILVER_DATASET_PREFIX: ${SILVER_DATASET_PREFIX:-}
+      GOLD_DATASET_PREFIX: ${GOLD_DATASET_PREFIX:-}
+      DOCUMENT_DATASET_PREFIX: ${DOCUMENT_DATASET_PREFIX:-}
+      DOCUMENT_SOURCE_RUN_ID: ${DOCUMENT_SOURCE_RUN_ID:-}
+      EMBEDDING_REPORT_BUCKET: ${EMBEDDING_REPORT_BUCKET:-}
+      EMBEDDING_DATASET_PREFIX: ${EMBEDDING_DATASET_PREFIX:-}
+      EMBEDDING_RUN_ID: ${EMBEDDING_RUN_ID:-}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-256}
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+      PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
+      PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
+
+  semantic-searcher:
+    build:
+      context: .
+    entrypoint: ["semantic-search"]
+    profiles:
+      - jobs
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+      PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
+      PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
 
 volumes:
   minio-data:

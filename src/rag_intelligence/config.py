@@ -160,6 +160,7 @@ class DocumentSettings:
     gold_source_run_id: str
     document_run_id: str
     document_part_size_rows: int
+    document_max_rows: int | None
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> DocumentSettings:
@@ -197,6 +198,7 @@ class DocumentSettings:
             raise ConfigError(f"Invalid DOCUMENT_PART_SIZE_ROWS value: {part_size_raw}") from err
         if document_part_size_rows <= 0:
             raise ConfigError("DOCUMENT_PART_SIZE_ROWS must be greater than zero")
+        document_max_rows = parse_optional_positive_int(raw_env, "DOCUMENT_MAX_ROWS")
 
         return cls(
             minio_endpoint=minio_endpoint,
@@ -210,6 +212,89 @@ class DocumentSettings:
             gold_source_run_id=gold_source_run_id,
             document_run_id=document_run_id,
             document_part_size_rows=document_part_size_rows,
+            document_max_rows=document_max_rows,
+        )
+
+
+@dataclass(frozen=True)
+class EmbeddingSettings:
+    minio_endpoint: str
+    minio_access_key: str
+    minio_secret_key: str
+    minio_secure: bool
+    document_bucket: str
+    embedding_report_bucket: str
+    document_dataset_prefix: str
+    embedding_dataset_prefix: str
+    document_source_run_id: str
+    embedding_run_id: str
+    embedding_batch_size: int
+    embedding_max_documents: int | None
+
+    @classmethod
+    def from_env(cls, env: dict[str, str] | None = None) -> EmbeddingSettings:
+        raw_env = dict(os.environ if env is None else env)
+
+        minio_endpoint = require_env(raw_env, "MINIO_ENDPOINT")
+        minio_access_key = require_env(raw_env, "MINIO_ACCESS_KEY")
+        minio_secret_key = require_env(raw_env, "MINIO_SECRET_KEY")
+        document_source_run_id = require_env(raw_env, "DOCUMENT_SOURCE_RUN_ID")
+
+        bronze_dataset_prefix = raw_env.get("BRONZE_DATASET_PREFIX", "").strip()
+        silver_dataset_prefix = (
+            raw_env.get("SILVER_DATASET_PREFIX", "").strip() or bronze_dataset_prefix
+        )
+        gold_dataset_prefix = (
+            raw_env.get("GOLD_DATASET_PREFIX", "").strip() or silver_dataset_prefix
+        )
+        document_dataset_prefix = (
+            raw_env.get("DOCUMENT_DATASET_PREFIX", "").strip() or gold_dataset_prefix
+        )
+        if not document_dataset_prefix:
+            raise ConfigError(
+                "Missing required environment variable: DOCUMENT_DATASET_PREFIX "
+                "(or GOLD_DATASET_PREFIX / SILVER_DATASET_PREFIX / "
+                "BRONZE_DATASET_PREFIX as fallback)"
+            )
+
+        gold_bucket = raw_env.get("GOLD_BUCKET", "gold").strip() or "gold"
+        document_bucket = raw_env.get("DOCUMENT_BUCKET", "").strip() or gold_bucket
+        embedding_report_bucket = (
+            raw_env.get("EMBEDDING_REPORT_BUCKET", "").strip() or document_bucket
+        )
+        embedding_dataset_prefix = (
+            raw_env.get("EMBEDDING_DATASET_PREFIX", "").strip()
+            or document_dataset_prefix
+        )
+        embedding_run_id = (
+            raw_env.get("EMBEDDING_RUN_ID", "").strip() or document_source_run_id
+        )
+
+        batch_size_raw = raw_env.get("EMBEDDING_BATCH_SIZE", "256").strip() or "256"
+        try:
+            embedding_batch_size = int(batch_size_raw)
+        except ValueError as err:
+            raise ConfigError(f"Invalid EMBEDDING_BATCH_SIZE value: {batch_size_raw}") from err
+        if embedding_batch_size <= 0:
+            raise ConfigError("EMBEDDING_BATCH_SIZE must be greater than zero")
+        embedding_max_documents = parse_optional_positive_int(
+            raw_env,
+            "EMBEDDING_MAX_DOCUMENTS",
+        )
+
+        return cls(
+            minio_endpoint=minio_endpoint,
+            minio_access_key=minio_access_key,
+            minio_secret_key=minio_secret_key,
+            minio_secure=parse_bool(raw_env.get("MINIO_SECURE", "false")),
+            document_bucket=document_bucket,
+            embedding_report_bucket=embedding_report_bucket,
+            document_dataset_prefix=document_dataset_prefix,
+            embedding_dataset_prefix=embedding_dataset_prefix,
+            document_source_run_id=document_source_run_id,
+            embedding_run_id=embedding_run_id,
+            embedding_batch_size=embedding_batch_size,
+            embedding_max_documents=embedding_max_documents,
         )
 
 
@@ -227,6 +312,22 @@ def parse_bool(value: str) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ConfigError(f"Invalid boolean value for MINIO_SECURE: {value}")
+
+
+def parse_optional_positive_int(
+    env: dict[str, str],
+    key: str,
+) -> int | None:
+    raw_value = env.get(key, "").strip()
+    if not raw_value:
+        return None
+    try:
+        parsed = int(raw_value)
+    except ValueError as err:
+        raise ConfigError(f"Invalid {key} value: {raw_value}") from err
+    if parsed <= 0:
+        raise ConfigError(f"{key} must be greater than zero")
+    return parsed
 
 
 def default_run_id(now: datetime | None = None) -> str:

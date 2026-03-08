@@ -16,7 +16,11 @@ from rag_intelligence.documents import (
 )
 
 
-def build_settings(part_size: int = 100000) -> DocumentSettings:
+def build_settings(
+    part_size: int = 100000,
+    *,
+    max_rows: int | None = None,
+) -> DocumentSettings:
     return DocumentSettings(
         minio_endpoint="localhost:9000",
         minio_access_key="minioadmin",
@@ -29,6 +33,7 @@ def build_settings(part_size: int = 100000) -> DocumentSettings:
         gold_source_run_id="20260306T025119Z",
         document_run_id="20260306T025119Z",
         document_part_size_rows=part_size,
+        document_max_rows=max_rows,
     )
 
 
@@ -223,6 +228,44 @@ def test_run_document_build_streams_gold_csv_and_partitions_output() -> None:
         "kill": 1,
         "round_meta": 1,
     }
+
+
+def test_run_document_build_supports_smoke_limit() -> None:
+    fake_minio = FakeMinio(
+        "localhost:9000",
+        "minioadmin",
+        "minioadmin",
+        False,
+        initial_objects={
+            "gold": {
+                _events_key(): (
+                    b"event_type,file,round,map,source_file\n"
+                    b"damage,demo_1,1,de_mirage,damage.csv\n"
+                    b"kill,demo_2,2,de_nuke,kills.csv\n"
+                    b"round_meta,demo_3,3,de_ancient,meta.csv\n"
+                ),
+            }
+        },
+        existing_buckets={"gold"},
+    )
+
+    result = run_document_build(
+        build_settings(part_size=10, max_rows=2),
+        minio_factory=lambda **kwargs: fake_minio,
+    )
+
+    manifest_key = "csgo-matchmaking-damage/20260306T025119Z/documents/manifest.json"
+    report_key = "csgo-matchmaking-damage/20260306T025119Z/documents/quality_report.json"
+    manifest = json.loads(fake_minio.objects["gold"][manifest_key].decode("utf-8"))
+    report = json.loads(fake_minio.objects["gold"][report_key].decode("utf-8"))
+
+    assert result.rows_read == 2
+    assert result.rows_output == 2
+    assert result.files_processed == 1
+    assert manifest["max_rows"] == 2
+    assert manifest["total_documents"] == 2
+    assert report["summary"]["max_rows"] == 2
+    assert report["summary"]["documents_generated"] == 2
 
 
 def test_run_document_build_fails_when_gold_object_is_missing() -> None:

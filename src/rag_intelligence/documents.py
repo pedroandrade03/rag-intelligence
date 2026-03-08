@@ -390,6 +390,11 @@ def run_document_build(
                 )
 
             for source_line_number, row in enumerate(reader, start=2):
+                if (
+                    settings.document_max_rows is not None
+                    and rows_output >= settings.document_max_rows
+                ):
+                    break
                 rows_read += 1
                 if current_part_file is None:
                     current_part_number += 1
@@ -439,6 +444,7 @@ def run_document_build(
             "document_run_id": settings.document_run_id,
             "dataset_prefix": settings.document_dataset_prefix,
             "part_size_rows": settings.document_part_size_rows,
+            "max_rows": settings.document_max_rows,
             "total_documents": rows_output,
             "total_parts": len(part_records),
             "parts": [asdict(part) for part in part_records],
@@ -463,6 +469,7 @@ def run_document_build(
             "rows_output": rows_output,
             "documents_generated": rows_output,
             "part_size_rows": settings.document_part_size_rows,
+            "max_rows": settings.document_max_rows,
             "event_type_counts": dict(sorted(event_type_counts.items())),
         }
         quality_report = {

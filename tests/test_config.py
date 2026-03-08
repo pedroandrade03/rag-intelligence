@@ -7,6 +7,7 @@ import pytest
 from rag_intelligence.config import (
     ConfigError,
     DocumentSettings,
+    EmbeddingSettings,
     GoldSettings,
     Settings,
     SilverSettings,
@@ -139,6 +140,7 @@ def test_document_settings_use_expected_defaults() -> None:
     assert settings.gold_source_run_id == "20260306T025119Z"
     assert settings.document_run_id == "20260306T025119Z"
     assert settings.document_part_size_rows == 100000
+    assert settings.document_max_rows is None
 
 
 def test_document_settings_support_overrides() -> None:
@@ -150,6 +152,7 @@ def test_document_settings_support_overrides() -> None:
     env["DOCUMENT_DATASET_PREFIX"] = "doc-prefix"
     env["DOCUMENT_RUN_ID"] = "20260308T120000Z"
     env["DOCUMENT_PART_SIZE_ROWS"] = "2500"
+    env["DOCUMENT_MAX_ROWS"] = "500"
 
     settings = DocumentSettings.from_env(env)
 
@@ -157,6 +160,7 @@ def test_document_settings_support_overrides() -> None:
     assert settings.document_dataset_prefix == "doc-prefix"
     assert settings.document_run_id == "20260308T120000Z"
     assert settings.document_part_size_rows == 2500
+    assert settings.document_max_rows == 500
 
 
 def test_document_settings_require_positive_part_size() -> None:
@@ -166,3 +170,76 @@ def test_document_settings_require_positive_part_size() -> None:
 
     with pytest.raises(ConfigError, match="greater than zero"):
         DocumentSettings.from_env(env)
+
+
+def test_document_settings_require_positive_max_rows() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260306T025119Z"
+    env["DOCUMENT_MAX_ROWS"] = "0"
+
+    with pytest.raises(ConfigError, match="DOCUMENT_MAX_ROWS"):
+        DocumentSettings.from_env(env)
+
+
+def test_embedding_settings_require_document_source_run_id() -> None:
+    env = base_env()
+    env["DOCUMENT_SOURCE_RUN_ID"] = ""
+
+    with pytest.raises(ConfigError, match="DOCUMENT_SOURCE_RUN_ID"):
+        EmbeddingSettings.from_env(env)
+
+
+def test_embedding_settings_use_expected_defaults() -> None:
+    env = base_env()
+    env["DOCUMENT_SOURCE_RUN_ID"] = "20260308T180500Z"
+
+    settings = EmbeddingSettings.from_env(env)
+
+    assert settings.document_bucket == "gold"
+    assert settings.embedding_report_bucket == "gold"
+    assert settings.document_dataset_prefix == "csgo-matchmaking-damage"
+    assert settings.embedding_dataset_prefix == "csgo-matchmaking-damage"
+    assert settings.document_source_run_id == "20260308T180500Z"
+    assert settings.embedding_run_id == "20260308T180500Z"
+    assert settings.embedding_batch_size == 256
+    assert settings.embedding_max_documents is None
+
+
+def test_embedding_settings_support_overrides() -> None:
+    env = base_env()
+    env["DOCUMENT_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["DOCUMENT_BUCKET"] = "gold-docs"
+    env["DOCUMENT_DATASET_PREFIX"] = "documents-prefix"
+    env["EMBEDDING_REPORT_BUCKET"] = "reports"
+    env["EMBEDDING_DATASET_PREFIX"] = "embeddings-prefix"
+    env["EMBEDDING_RUN_ID"] = "20260308T181000Z"
+    env["EMBEDDING_BATCH_SIZE"] = "32"
+    env["EMBEDDING_MAX_DOCUMENTS"] = "64"
+
+    settings = EmbeddingSettings.from_env(env)
+
+    assert settings.document_bucket == "gold-docs"
+    assert settings.embedding_report_bucket == "reports"
+    assert settings.document_dataset_prefix == "documents-prefix"
+    assert settings.embedding_dataset_prefix == "embeddings-prefix"
+    assert settings.embedding_run_id == "20260308T181000Z"
+    assert settings.embedding_batch_size == 32
+    assert settings.embedding_max_documents == 64
+
+
+def test_embedding_settings_require_positive_batch_size() -> None:
+    env = base_env()
+    env["DOCUMENT_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["EMBEDDING_BATCH_SIZE"] = "0"
+
+    with pytest.raises(ConfigError, match="greater than zero"):
+        EmbeddingSettings.from_env(env)
+
+
+def test_embedding_settings_require_positive_max_documents() -> None:
+    env = base_env()
+    env["DOCUMENT_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["EMBEDDING_MAX_DOCUMENTS"] = "0"
+
+    with pytest.raises(ConfigError, match="EMBEDDING_MAX_DOCUMENTS"):
+        EmbeddingSettings.from_env(env)
