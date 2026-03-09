@@ -193,31 +193,31 @@ flowchart LR
 
 ---
 
-# ImplementaÃ§Ã£o PB05
+# Implementação PB05
 
 ## Objetivo
 
 Transformar cada linha de `gold/<dataset_prefix>/<run_id>/curated/events.csv` em um document versionado com `doc_id`, `text` e `metadata`, persistindo os artefatos em JSONL particionado para uso posterior pela PB06/PB07.
 
-## PrÃ©-requisito
+## Pré-requisito
 
 - Executar PB03 antes da PB05.
 - Definir `GOLD_SOURCE_RUN_ID` com um run existente na Gold.
 
-## ConfiguraÃ§Ã£o
+## Configuração
 
-VariÃ¡veis da PB05:
+Variáveis da PB05:
 
-- `GOLD_SOURCE_RUN_ID=` obrigatÃ³rio
+- `GOLD_SOURCE_RUN_ID=` obrigatório
 - `DOCUMENT_BUCKET=` opcional; se vazio usa `GOLD_BUCKET`
 - `DOCUMENT_DATASET_PREFIX=` opcional; se vazio usa `GOLD_DATASET_PREFIX` e depois `SILVER_DATASET_PREFIX` / `BRONZE_DATASET_PREFIX`
 - `DOCUMENT_RUN_ID=` opcional; se vazio usa `GOLD_SOURCE_RUN_ID`
-- `DOCUMENT_PART_SIZE_ROWS=100000` opcional; controla quantas linhas vÃ£o em cada `part-xxxxx.jsonl`
+- `DOCUMENT_PART_SIZE_ROWS=100000` opcional; controla quantas linhas vão em cada `part-xxxxx.jsonl`
 - `DOCUMENT_MAX_ROWS=` opcional; limita quantas linhas da Gold serao convertidas em documents para smoke test
 
-## SaÃ­da
+## Saída
 
-Os documents sÃ£o gravados em:
+Os documents são gravados em:
 
 - `gold/<dataset_prefix>/<run_id>/documents/part-00001.jsonl`
 - `gold/<dataset_prefix>/<run_id>/documents/part-00002.jsonl`
@@ -226,11 +226,11 @@ Os documents sÃ£o gravados em:
 
 Cada linha do JSONL segue o contrato:
 
-- `doc_id`: identificador estÃ¡vel no formato `<document_run_id>:<line_number>`
-- `text`: texto em pt-BR com termos tÃ©cnicos do jogo preservados
+- `doc_id`: identificador estável no formato `<document_run_id>:<line_number>`
+- `text`: texto em pt-BR com termos técnicos do jogo preservados
 - `metadata`: objeto JSON flat com contexto do evento e linhagem do artefato
 
-## ExecuÃ§Ã£o
+## Execução
 
 Via Docker Compose:
 
@@ -244,13 +244,13 @@ Via Makefile:
 make documents
 ```
 
-## ValidaÃ§Ã£o
+## Validação
 
 Verifique no MinIO:
 
 - parts JSONL em `gold/<dataset_prefix>/<run_id>/documents/`
 - manifest em `gold/<dataset_prefix>/<run_id>/documents/manifest.json`
-- relatÃ³rio em `gold/<dataset_prefix>/<run_id>/documents/quality_report.json`
+- relatório em `gold/<dataset_prefix>/<run_id>/documents/quality_report.json`
 
 Smoke rapido:
 
@@ -259,7 +259,7 @@ docker compose run --rm -e DOCUMENT_MAX_ROWS=25 -e DOCUMENT_RUN_ID=documents-smo
 make documents-smoke
 ```
 
-O pipeline lÃª o `events.csv` em streaming, gera um document por evento da Gold, tipa metadados numÃ©ricos/booleanos quando possÃ­vel e registra a execuÃ§Ã£o no catÃ¡logo `dataset_runs` com `stage=documents`.
+O pipeline lê o `events.csv` em streaming, gera um document por evento da Gold, tipa metadados numéricos/booleanos quando possível e registra a execução no catálogo `dataset_runs` com `stage=documents`.
 
 # Implementacao PB06
 
