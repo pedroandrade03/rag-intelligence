@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -12,6 +13,7 @@ from llama_index.core.schema import Document
 from rag_intelligence.settings import AppSettings
 
 THREAD_LOCAL = threading.local()
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -83,8 +85,66 @@ def _embed_document_batch(
         registry_factory=registry_factory,
         pipeline_factory=pipeline_factory,
     )
-    nodes = pipeline.run(documents=list(documents), num_workers=num_workers)
+    nodes = _embed_documents_with_nan_fallback(
+        list(documents),
+        pipeline=pipeline,
+        num_workers=num_workers,
+    )
     return EmbeddedBatch(nodes=list(nodes), rows_indexed=len(nodes))
+
+
+def _embed_documents_with_nan_fallback(
+    documents: list[Document],
+    *,
+    pipeline: Any,
+    num_workers: int,
+) -> list[Any]:
+    if not documents:
+        return []
+
+    try:
+        return list(pipeline.run(documents=documents, num_workers=num_workers))
+    except Exception as exc:
+        if not _is_ollama_nan_response_error(exc):
+            raise
+
+        if len(documents) == 1:
+            doc_id = str(documents[0].doc_id)
+            LOGGER.warning(
+                ("Skipping document due to Ollama NaN embedding response: doc_id=%s error=%s"),
+                doc_id,
+                exc,
+            )
+            return []
+
+        midpoint = len(documents) // 2
+        left_batch = documents[:midpoint]
+        right_batch = documents[midpoint:]
+        LOGGER.warning(
+            (
+                "Embedding batch failed with NaN response; retrying in smaller "
+                "batches: size=%s left=%s right=%s"
+            ),
+            len(documents),
+            len(left_batch),
+            len(right_batch),
+        )
+        left_nodes = _embed_documents_with_nan_fallback(
+            left_batch,
+            pipeline=pipeline,
+            num_workers=num_workers,
+        )
+        right_nodes = _embed_documents_with_nan_fallback(
+            right_batch,
+            pipeline=pipeline,
+            num_workers=num_workers,
+        )
+        return [*left_nodes, *right_nodes]
+
+
+def _is_ollama_nan_response_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "failed to encode response" in message and "unsupported value: nan" in message
 
 
 def _submit_embedding_batch(
