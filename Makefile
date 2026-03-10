@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci api frontend frontend-build up down logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search ollama-pull otel-up otel-down otel-logs clean
+.PHONY: help install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build up down logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search ollama-pull otel-up otel-down otel-logs clean
 
 .DEFAULT_GOAL := help
 
@@ -29,7 +29,12 @@ fmt: ## Run ruff formatter (writes changes)
 typecheck: ## Run pyright type checker
 	pyright --pythonpath .venv/bin/python src/
 
-ci: lint typecheck test ## Run full CI check locally (lint + types + tests)
+ci: lint typecheck test ## Run backend CI locally (lint + types + tests)
+
+ci-frontend: ## Run frontend CI locally (lint + build)
+	cd frontend && npm run lint && npm run build
+
+ci-all: ci ci-frontend ## Run full CI locally (backend + frontend)
 
 api: ## Run API locally with hot reload
 	set -a && . ./.env && set +a && . .venv/bin/activate && uvicorn rag_intelligence.api.main:app --reload --port 8000
