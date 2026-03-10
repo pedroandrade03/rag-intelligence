@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci api up down logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search ollama-pull otel-up otel-down otel-logs clean
+.PHONY: help install dev test test-q lint fmt typecheck ci api frontend frontend-build up down logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search ollama-pull otel-up otel-down otel-logs clean
 
 .DEFAULT_GOAL := help
 
@@ -32,7 +32,13 @@ typecheck: ## Run pyright type checker
 ci: lint typecheck test ## Run full CI check locally (lint + types + tests)
 
 api: ## Run API locally with hot reload
-	. .venv/bin/activate && uvicorn rag_intelligence.api.main:app --reload --port 8000
+	set -a && . ./.env && set +a && . .venv/bin/activate && uvicorn rag_intelligence.api.main:app --reload --port 8000
+
+frontend: ## Run frontend dev server
+	cd frontend && npm run dev
+
+frontend-build: ## Build frontend for production
+	cd frontend && npm run build
 
 up: ## Start all services (docker compose)
 	docker compose up -d
@@ -86,6 +92,10 @@ otel-logs: ## Follow observability logs
 ollama-pull: ## Pull Ollama models (inference + embedding)
 	docker exec -it $$(docker compose ps -q ollama) ollama pull qwen2.5:7b-instruct
 	docker exec -it $$(docker compose ps -q ollama) ollama pull nomic-embed-text
+
+db-reset: ## Reset frontend chat database
+	rm -f frontend/data/chat.db frontend/data/chat.db-wal frontend/data/chat.db-shm
+	@echo "Chat database reset."
 
 clean: ## Remove caches and build artifacts
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
