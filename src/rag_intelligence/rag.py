@@ -54,8 +54,14 @@ class RAGResponse:
 
 def _nodes_to_sources(nodes: list[NodeWithScore]) -> list[dict[str, Any]]:
     return [
-        {"rank": r.rank, "score": r.score, "doc_id": r.doc_id,
-         "text": r.text, "event_type": r.event_type, "map": r.map}
+        {
+            "rank": r.rank,
+            "score": r.score,
+            "doc_id": r.doc_id,
+            "text": r.text,
+            "event_type": r.event_type,
+            "map": r.map,
+        }
         for r in (build_search_result(n, rank=i) for i, n in enumerate(nodes, 1))
     ]
 
