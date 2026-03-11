@@ -111,7 +111,7 @@ def _embed_documents_with_nan_fallback(
         if len(documents) == 1:
             doc_id = str(documents[0].doc_id)
             LOGGER.warning(
-                ("Skipping document due to Ollama NaN embedding response: doc_id=%s error=%s"),
+                "Skipping document due to Ollama NaN embedding response: doc_id=%s error=%s",
                 doc_id,
                 exc,
             )
@@ -121,10 +121,8 @@ def _embed_documents_with_nan_fallback(
         left_batch = documents[:midpoint]
         right_batch = documents[midpoint:]
         LOGGER.warning(
-            (
-                "Embedding batch failed with NaN response; retrying in smaller "
-                "batches: size=%s left=%s right=%s"
-            ),
+            "Embedding batch failed with NaN response; retrying in smaller "
+            "batches: size=%s left=%s right=%s",
             len(documents),
             len(left_batch),
             len(right_batch),

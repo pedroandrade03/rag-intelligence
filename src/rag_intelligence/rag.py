@@ -53,17 +53,20 @@ class RAGResponse:
 
 
 def _nodes_to_sources(nodes: list[NodeWithScore]) -> list[dict[str, Any]]:
-    return [
-        {
-            "rank": r.rank,
-            "score": r.score,
-            "doc_id": r.doc_id,
-            "text": r.text,
-            "event_type": r.event_type,
-            "map": r.map,
-        }
-        for r in (build_search_result(n, rank=i) for i, n in enumerate(nodes, 1))
-    ]
+    sources: list[dict[str, Any]] = []
+    for i, node in enumerate(nodes, 1):
+        r = build_search_result(node, rank=i)
+        sources.append(
+            {
+                "rank": r.rank,
+                "score": r.score,
+                "doc_id": r.doc_id,
+                "text": r.text,
+                "event_type": r.event_type,
+                "map": r.map,
+            }
+        )
+    return sources
 
 
 def _build_query_engine(

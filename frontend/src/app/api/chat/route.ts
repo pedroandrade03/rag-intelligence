@@ -8,24 +8,18 @@ import {
 import { createOllama } from "ollama-ai-provider-v2";
 import { z } from "zod";
 
+import {
+  DEFAULT_CHAT_MODEL,
+  getChatModel,
+  type RagMode,
+} from "@/lib/chat-models";
+
 const RAG_API_URL = process.env.RAG_API_URL ?? "http://localhost:8000";
 const EMBEDDING_RUN_ID = process.env.EMBEDDING_RUN_ID ?? "20260306T025119Z";
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const DEFAULT_MODEL =
-  process.env.OLLAMA_MODEL ?? "qwen2.5:7b-instruct-q4_K_M";
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL ?? DEFAULT_CHAT_MODEL.id;
 
 const ollama = createOllama({ baseURL: `${OLLAMA_BASE_URL}/api` });
-
-const REASONING_PREFIXES = ["deepseek-r1", "qwen3"];
-const NO_TOOL_PREFIXES = ["deepseek-r1"];
-
-function isReasoningModel(modelId: string): boolean {
-  return REASONING_PREFIXES.some((p) => modelId.startsWith(p));
-}
-
-function supportsTools(modelId: string): boolean {
-  return !NO_TOOL_PREFIXES.some((p) => modelId.startsWith(p));
-}
 
 const SYSTEM_PROMPT = `Você é um analista profissional de partidas de CS:GO / Counter-Strike.
 
@@ -114,16 +108,17 @@ export async function POST(req: Request) {
   }: {
     messages: UIMessage[];
     model?: string;
-    ragMode?: "auto" | "always" | "off";
+    ragMode?: RagMode;
   } = await req.json();
 
-  const modelId = model || DEFAULT_MODEL;
-  const mode = ragMode || "auto";
-  const supportsReasoning = isReasoningModel(modelId);
-  const canUseTools = supportsTools(modelId);
+  const selectedModel = getChatModel(model ?? DEFAULT_MODEL);
+  const modelId = selectedModel.id;
+  const mode = ragMode ?? "auto";
+  const canUseTools = selectedModel.supportsTools;
   const effectiveMode = canUseTools ? mode : "off";
 
-  const tools = effectiveMode === "off" ? undefined : { searchMatchData: searchMatchDataTool };
+  const tools =
+    effectiveMode === "off" ? undefined : { searchMatchData: searchMatchDataTool };
   const toolChoice =
     effectiveMode === "always"
       ? ("required" as const)
@@ -137,7 +132,7 @@ export async function POST(req: Request) {
     messages: await convertToModelMessages(messages),
     tools,
     toolChoice,
-    ...(supportsReasoning && {
+    ...(selectedModel.supportsReasoning && {
       providerOptions: { ollama: { think: true } },
     }),
     stopWhen: stepCountIs(3),
