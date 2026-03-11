@@ -1,4 +1,8 @@
-"""RAG synthesis: retrieve context from pgvectorscale, format prompt, call LLM."""
+"""RAG synthesis using LlamaIndex QueryEngine.
+
+Kept as an alternative server-side RAG endpoint. The primary frontend
+uses AI SDK tool-calling with ``/search`` instead.
+"""
 
 from __future__ import annotations
 
@@ -9,18 +13,24 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
+from llama_index.core import PromptTemplate, VectorStoreIndex
+from llama_index.core.schema import NodeWithScore
+
+from rag_intelligence.db import create_vector_store
 from rag_intelligence.providers import ProviderRegistry
-from rag_intelligence.retrieval import SearchRequest, SearchResponse, SearchResult, search_events
+from rag_intelligence.retrieval import SearchRequest, build_metadata_filters, build_search_result
 from rag_intelligence.settings import AppSettings
 
 LOGGER = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
-You are a CS:GO / Counter-Strike professional analyst. \
-Answer the user's question using ONLY the match event data provided below. \
-If the data is insufficient, say so — never fabricate information. \
-Be precise, cite specific events when relevant, and use numbers from the data.\
-"""
+QA_PROMPT = PromptTemplate(
+    "You are a CS:GO / Counter-Strike professional analyst. "
+    "Answer the user's question using ONLY the match event data provided below. "
+    "If the data is insufficient, say so — never fabricate information. "
+    "Be precise, cite specific events when relevant, and use numbers from the data.\n\n"
+    "--- MATCH EVENT DATA ---\n{context_str}\n--- END DATA ---\n\n"
+    "User question: {query_str}"
+)
 
 
 @dataclass(frozen=True)
@@ -42,50 +52,27 @@ class RAGResponse:
     generation_ms: int
 
 
-def format_context(results: list[SearchResult]) -> str:
-    """Format search results as a numbered context block for the LLM prompt."""
-    if not results:
-        return "(no relevant events found)"
-    lines = []
-    for i, r in enumerate(results, start=1):
-        lines.append(f"[{i}] {r.text}")
-    return "\n".join(lines)
-
-
-def build_prompt(query: str, context: str) -> str:
-    """Combine system prompt, retrieved context, and user query into a single prompt."""
-    return (
-        f"{SYSTEM_PROMPT}\n\n"
-        f"--- MATCH EVENT DATA ---\n{context}\n--- END DATA ---\n\n"
-        f"User question: {query}"
-    )
-
-
-def _search_response_to_sources(response: SearchResponse) -> list[dict[str, Any]]:
+def _nodes_to_sources(nodes: list[NodeWithScore]) -> list[dict[str, Any]]:
     return [
-        {
-            "rank": r.rank,
-            "score": r.score,
-            "doc_id": r.doc_id,
-            "text": r.text,
-            "event_type": r.event_type,
-            "map": r.map,
-        }
-        for r in response.results
+        {"rank": r.rank, "score": r.score, "doc_id": r.doc_id,
+         "text": r.text, "event_type": r.event_type, "map": r.map}
+        for r in (build_search_result(n, rank=i) for i, n in enumerate(nodes, 1))
     ]
 
 
-def rag_query(
+def _build_query_engine(
     request: RAGRequest,
     *,
-    search_fn: Any = search_events,
-    app_settings_factory: Any = AppSettings.from_env,
-    registry_factory: Any = ProviderRegistry,
-) -> RAGResponse:
-    """Synchronous RAG: retrieve → prompt → LLM complete."""
+    app_settings_factory: Any,
+    registry_factory: Any,
+    vector_store_factory: Any,
+    index_factory: Any,
+    streaming: bool = False,
+) -> Any:
     settings = app_settings_factory()
     registry = registry_factory(settings)
-    llm = registry.get_llm(request.llm_key)
+    vector_store = vector_store_factory(settings, perform_setup=False)
+    index = index_factory(vector_store, embed_model=registry.get_embed_model())
 
     search_req = SearchRequest(
         query=request.query,
@@ -94,81 +81,78 @@ def rag_query(
         event_type=request.event_type,
         map_name=request.map_name,
     )
-    search_resp = search_fn(
-        search_req,
-        app_settings_factory=app_settings_factory,
-        registry_factory=registry_factory,
+    return index.as_query_engine(
+        similarity_top_k=request.top_k,
+        filters=build_metadata_filters(search_req),
+        text_qa_template=QA_PROMPT,
+        response_mode="compact",
+        llm=registry.get_llm(request.llm_key),
+        streaming=streaming,
     )
 
-    context = format_context(search_resp.results)
-    prompt = build_prompt(request.query, context)
 
-    gen_start = perf_counter()
-    completion = llm.complete(prompt)
-    generation_ms = int((perf_counter() - gen_start) * 1000)
+def rag_query(
+    request: RAGRequest,
+    *,
+    app_settings_factory: Any = AppSettings.from_env,
+    registry_factory: Any = ProviderRegistry,
+    vector_store_factory: Any = create_vector_store,
+    index_factory: Any = VectorStoreIndex.from_vector_store,
+) -> RAGResponse:
+    """Synchronous RAG via LlamaIndex QueryEngine."""
+    engine = _build_query_engine(
+        request,
+        app_settings_factory=app_settings_factory,
+        registry_factory=registry_factory,
+        vector_store_factory=vector_store_factory,
+        index_factory=index_factory,
+    )
+    start = perf_counter()
+    response = engine.query(request.query)
+    total_ms = int((perf_counter() - start) * 1000)
 
     return RAGResponse(
         query=request.query,
-        answer=completion.text,
-        sources=_search_response_to_sources(search_resp),
-        retrieval_ms=search_resp.retrieval_ms,
-        generation_ms=generation_ms,
+        answer=str(response),
+        sources=_nodes_to_sources(response.source_nodes),
+        retrieval_ms=total_ms,
+        generation_ms=0,
     )
 
 
 async def rag_query_stream(
     request: RAGRequest,
     *,
-    search_fn: Any = search_events,
     app_settings_factory: Any = AppSettings.from_env,
     registry_factory: Any = ProviderRegistry,
+    vector_store_factory: Any = create_vector_store,
+    index_factory: Any = VectorStoreIndex.from_vector_store,
 ) -> AsyncGenerator[str]:
-    """Streaming RAG: yields SSE events (sources → chunk* → done)."""
-    settings = app_settings_factory()
-    registry = registry_factory(settings)
-    llm = registry.get_llm(request.llm_key)
-
-    search_req = SearchRequest(
-        query=request.query,
-        embedding_run_id=request.embedding_run_id,
-        top_k=request.top_k,
-        event_type=request.event_type,
-        map_name=request.map_name,
-    )
-    search_resp = search_fn(
-        search_req,
+    """Streaming RAG: yields SSE events (sources -> chunk* -> done)."""
+    engine = _build_query_engine(
+        request,
         app_settings_factory=app_settings_factory,
         registry_factory=registry_factory,
+        vector_store_factory=vector_store_factory,
+        index_factory=index_factory,
+        streaming=True,
     )
+    start = perf_counter()
+    response = await engine.aquery(request.query)
 
-    sources = _search_response_to_sources(search_resp)
-    yield _sse(
-        "sources",
-        {
-            "sources": sources,
-            "retrieval_ms": search_resp.retrieval_ms,
-        },
-    )
-
-    context = format_context(search_resp.results)
-    prompt = build_prompt(request.query, context)
+    sources = _nodes_to_sources(response.source_nodes)
+    retrieval_ms = int((perf_counter() - start) * 1000)
+    yield _sse("sources", {"sources": sources, "retrieval_ms": retrieval_ms})
 
     gen_start = perf_counter()
     full_answer = ""
-    async for chunk in await llm.astream_complete(prompt):
-        token = chunk.delta or ""
+    async for token in response.async_response_gen():
         if token:
             full_answer += token
             yield _sse("chunk", {"token": token})
 
     generation_ms = int((perf_counter() - gen_start) * 1000)
-    yield _sse(
-        "done",
-        {
-            "answer": full_answer,
-            "generation_ms": generation_ms,
-        },
-    )
+    yield _sse("done", {"answer": full_answer, "generation_ms": generation_ms})
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
