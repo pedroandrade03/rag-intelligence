@@ -185,7 +185,7 @@ flowchart LR
 
 ### Estado Atual
 
-- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI e endpoint `/search`), PB09 (API FastAPI com `/search` e `/rag/query` com streaming SSE), PB11 (frontend Next.js com chat, sessoes e AI SDK), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, CI (ruff + pyright + pytest + eslint + next build).
+- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI e endpoint `/search`), PB09 (API FastAPI com `/search` e `/rag/query` com streaming SSE), PB11 (frontend Next.js 16 com App Router, AI SDK, bootstrap server-side das sessoes e persistencia local em SQLite via route handlers), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, CI (ruff + pyright + pytest + eslint + next build).
 - **Planejado**: PB10 (stats de armas/dano), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
 
 ---
@@ -543,24 +543,55 @@ docker compose up -d rag-api
 
 ## Objetivo
 
-Frontend Next.js para interacao com o RAG via chat.
+Frontend Next.js para interação com o RAG via chat, com streaming de respostas, histórico local de sessões e integração com Ollama + busca semântica do backend.
 
 ## Stack
 
 - Next.js 16 com App Router e React 19
-- AI SDK (`@ai-sdk/react`) para chat streaming
-- SQLite (better-sqlite3) para persistencia local de sessoes e mensagens
+- AI SDK (`ai` + `@ai-sdk/react`) para streaming e estado do chat
+- SQLite (`better-sqlite3`) para persistência local de sessões e mensagens
+- Route Handlers do Next.js para `chat` e CRUD de sessões
+- `ollama-ai-provider-v2` para comunicação com modelos locais
 - shadcn/ui + Tailwind CSS v4 para interface
-- Ollama AI Provider para comunicacao com modelos locais
+- `react-grab` carregado apenas em desenvolvimento para debug visual da UI
 
-## Estrutura
+## Arquitetura atual
 
-- `frontend/src/app/page.tsx` — pagina principal com interface de chat
-- `frontend/src/lib/db.ts` — SQLite com tabelas `sessions` e `messages`
-- `frontend/src/components/ai-elements/` — componentes de chat (vendor)
-- `frontend/src/components/ui/` — componentes shadcn/ui (vendor)
+- `frontend/src/app/page.tsx` é um Server Component dinâmico que faz o bootstrap inicial da sessão ativa e das mensagens já persistidas.
+- `frontend/src/components/chat/chat-app.tsx` é a ilha cliente principal. Ela usa `useChat` como fonte de verdade do chat ativo e mantém apenas um cache local por sessão para navegação.
+- `frontend/src/app/api/chat/route.ts` recebe os requests do AI SDK, persiste a mensagem do usuário, executa `streamText(...)` com Ollama e salva a resposta final do assistente.
+- `frontend/src/app/api/sessions/*` expõe listagem, criação, renomeação, remoção e carregamento de mensagens das sessões.
+- `frontend/src/lib/chat-session-store.ts` concentra a leitura e escrita no SQLite.
+- `frontend/src/lib/db.ts` cria `frontend/data/chat.db` e garante o schema das tabelas `sessions` e `messages`.
+- `frontend/src/app/dev-tools.tsx` carrega `react-grab` somente em `development`.
 
-## Execucao
+## Fluxo do chat
+
+1. O servidor renderiza a página com a sessão mais recente e as mensagens iniciais.
+2. O cliente envia novas mensagens com `useChat`.
+3. O route handler `/api/chat` usa um tool de busca para consultar `POST {RAG_API_URL}/search` quando o modo RAG está ativo.
+4. O modelo local é chamado via Ollama e a resposta é streamada para a UI.
+5. Sessões e mensagens ficam persistidas no SQLite local do frontend.
+
+## Variáveis principais
+
+- `RAG_API_URL` — URL base da API FastAPI usada pela ferramenta de busca. Default: `http://localhost:8000`
+- `EMBEDDING_RUN_ID` — run de embeddings consultado pela busca semântica
+- `OLLAMA_BASE_URL` — URL base do Ollama. Default: `http://localhost:11434`
+- `OLLAMA_MODEL` — modelo default usado pelo chat quando o usuário não seleciona outro
+
+## Estrutura de pastas
+
+- `frontend/src/app/page.tsx` — bootstrap server-side da UI
+- `frontend/src/components/chat/chat-app.tsx` — estado cliente do chat
+- `frontend/src/app/api/chat/route.ts` — streaming AI SDK + persistência da resposta
+- `frontend/src/app/api/sessions/` — CRUD das sessões
+- `frontend/src/lib/chat-session-store.ts` — acesso ao SQLite
+- `frontend/src/lib/chat-models.ts` — catálogo de modelos e modos RAG
+- `frontend/src/components/ai-elements/` — componentes de chat baseados em vendor code
+- `frontend/src/components/ui/` — componentes de interface reutilizáveis
+
+## Execução
 
 Dev server:
 
@@ -568,7 +599,7 @@ Dev server:
 make frontend
 ```
 
-Build de producao:
+Build de produção:
 
 ```bash
 make frontend-build
@@ -578,6 +609,12 @@ Reset do banco de chat:
 
 ```bash
 make db-reset
+```
+
+CI local do frontend:
+
+```bash
+make ci-frontend
 ```
 
 # Implementação PB01

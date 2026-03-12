@@ -1,36 +1,118 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend
 
-## Getting Started
+Interface web do projeto `rag-intelligence`, construída com Next.js 16, React 19 e AI SDK.
 
-First, run the development server:
+## Objetivo
+
+Fornecer uma UI de chat para consultar dados de partidas de CS:GO, com:
+
+- streaming de respostas
+- histórico local de sessões
+- seleção de modelo
+- modos de uso do RAG (`auto`, `always`, `off`)
+
+## Stack
+
+- Next.js 16 + App Router
+- React 19
+- AI SDK: `ai` + `@ai-sdk/react`
+- Ollama via `ollama-ai-provider-v2`
+- SQLite local via `better-sqlite3`
+- Tailwind CSS v4 + componentes UI locais
+- `react-grab` em desenvolvimento para debug visual
+
+## Arquitetura
+
+### Server/client split
+
+- `src/app/page.tsx` é um Server Component dinâmico.
+- O bootstrap inicial das sessões e mensagens vem do servidor, não do cliente.
+- `src/components/chat/chat-app.tsx` é a ilha cliente principal e usa `useChat` como fonte de verdade do chat ativo.
+
+### Persistência local
+
+- O banco fica em `frontend/data/chat.db`.
+- `src/lib/db.ts` cria o schema automaticamente.
+- `src/lib/chat-session-store.ts` concentra leitura e escrita de sessões e mensagens.
+
+### Rotas internas
+
+- `src/app/api/chat/route.ts`
+  Faz o bridge entre a UI e o modelo. Persiste a mensagem do usuário, chama `streamText(...)` com Ollama e salva a resposta final do assistente.
+- `src/app/api/sessions/route.ts`
+  Lista e cria sessões.
+- `src/app/api/sessions/[id]/route.ts`
+  Renomeia e remove sessões.
+- `src/app/api/sessions/[id]/messages/route.ts`
+  Carrega as mensagens de uma sessão.
+
+### Fluxo de resposta
+
+1. A página carrega com a sessão mais recente já renderizada pelo servidor.
+2. O usuário envia a mensagem pela UI.
+3. A rota `/api/chat` decide modelo e modo RAG.
+4. Quando o RAG está habilitado, a tool `searchMatchData` consulta `POST {RAG_API_URL}/search`.
+5. O Ollama gera a resposta e o AI SDK streama os chunks para o cliente.
+6. A resposta final é persistida no SQLite.
+
+## Variáveis de ambiente
+
+- `RAG_API_URL`
+  URL da API FastAPI usada pela busca semântica.
+  Default: `http://localhost:8000`
+- `EMBEDDING_RUN_ID`
+  Run de embeddings consultado pelo endpoint de busca.
+- `OLLAMA_BASE_URL`
+  URL base do Ollama.
+  Default: `http://localhost:11434`
+- `OLLAMA_MODEL`
+  Modelo default do chat quando nenhum modelo é escolhido pelo usuário.
+
+## Desenvolvimento
+
+Instalar dependências:
+
+```bash
+npm install
+```
+
+Rodar em modo desenvolvimento:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Build de produção:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Subir versão buildada:
 
-## Learn More
+```bash
+npm run start
+```
 
-To learn more about Next.js, take a look at the following resources:
+Lint:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run lint
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Comandos via Makefile
 
-## Deploy on Vercel
+Da raiz do repositório:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+make frontend
+make frontend-build
+make ci-frontend
+make db-reset
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Observações
+
+- O frontend não usa mais TanStack Query para o fluxo de chat. O estado vivo do chat fica no `useChat`.
+- Componentes mais pesados do chat são carregados com `next/dynamic` para reduzir o custo inicial do bundle.
+- `react-grab` é carregado apenas em `development` por `src/app/dev-tools.tsx`.
