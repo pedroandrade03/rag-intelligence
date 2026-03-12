@@ -174,8 +174,6 @@ export function ChatApp({
         return;
       }
 
-      const remainingSessions = chatSessions.filter((session) => session.id !== id);
-
       try {
         await deleteSession(id);
       } catch (error) {
@@ -184,13 +182,18 @@ export function ChatApp({
       }
 
       messageCacheRef.current.delete(id);
-      setChatSessions(remainingSessions);
+
+      let remaining: ChatSession[] = [];
+      setChatSessions((current) => {
+        remaining = current.filter((session) => session.id !== id);
+        return remaining;
+      });
 
       if (id !== activeChatId) {
         return;
       }
 
-      if (remainingSessions.length === 0) {
+      if (remaining.length === 0) {
         try {
           const session = await createSession(DEFAULT_CHAT_TITLE);
           messageCacheRef.current.set(session.id, []);
@@ -203,7 +206,7 @@ export function ChatApp({
         return;
       }
 
-      const nextActiveId = remainingSessions[0].id;
+      const nextActiveId = remaining[0].id;
       const shouldLoad = !messageCacheRef.current.has(nextActiveId);
       if (shouldLoad) {
         setIsLoadingMessages(true);
@@ -221,7 +224,7 @@ export function ChatApp({
         }
       }
     },
-    [activeChatId, chatSessions, ensureCachedMessages, isGenerating]
+    [activeChatId, ensureCachedMessages, isGenerating]
   );
 
   const sendPrompt = useCallback(

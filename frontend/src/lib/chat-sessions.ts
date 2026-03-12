@@ -5,7 +5,6 @@ export const DEFAULT_CHAT_TITLE = "Nova Conversa";
 export interface ChatSession {
   id: string;
   title: string;
-  createdAt: string;
 }
 
 export interface ChatSessionRecord {
@@ -24,7 +23,6 @@ export function createDraftSession(
   title: string = DEFAULT_CHAT_TITLE
 ): ChatSession {
   return {
-    createdAt: new Date().toISOString(),
     id: createChatSessionId(),
     title,
   };
@@ -32,7 +30,6 @@ export function createDraftSession(
 
 export function toChatSession(record: ChatSessionRecord): ChatSession {
   return {
-    createdAt: record.created_at,
     id: record.id,
     title: record.title,
   };
