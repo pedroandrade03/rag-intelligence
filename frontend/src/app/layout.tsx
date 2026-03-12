@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import {
+  Geist_Mono,
+  Instrument_Serif,
+  Montserrat,
+} from "next/font/google";
 
 import { Providers } from "@/app/providers";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const montserrat = Montserrat({
+  variable: "--font-montserrat",
   subsets: ["latin"],
 });
 
@@ -34,7 +38,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} antialiased`}
+        className={`${montserrat.variable} ${geistMono.variable} ${instrumentSerif.variable} antialiased`}
       >
         <Providers>
           <TooltipProvider>{children}</TooltipProvider>

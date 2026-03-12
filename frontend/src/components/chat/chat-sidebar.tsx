@@ -69,11 +69,11 @@ export const ChatSidebar = memo(function ChatSidebar({
       </div>
 
       <ScrollArea className="flex-1 px-3">
-        <div className="space-y-0.5 pb-4">
+        <div className="space-y-0.5 overflow-hidden pb-4">
           {sessions.map((session) => (
             <div
               className={cn(
-                "group flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
+                "group flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-sm transition-colors",
                 session.id === activeChatId
                   ? "bg-accent/80 text-foreground"
                   : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
@@ -81,18 +81,19 @@ export const ChatSidebar = memo(function ChatSidebar({
               key={session.id}
               onClick={() => onSelectChat(session.id)}
             >
-              <span className="truncate">{session.title}</span>
-              <Button
-                className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+              <span className="min-w-0 flex-1 truncate">
+                {session.title}
+              </span>
+              <button
+                className="shrink-0 rounded p-1 text-muted-foreground/40 hover:text-destructive"
                 onClick={(event) => {
                   event.stopPropagation();
                   onDeleteChat(session.id);
                 }}
-                size="icon-xs"
-                variant="ghost"
+                type="button"
               >
                 <Trash2 className="size-3" />
-              </Button>
+              </button>
             </div>
           ))}
         </div>

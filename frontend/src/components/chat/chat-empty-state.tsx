@@ -73,7 +73,7 @@ export function ChatEmptyState({
         transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
       >
         <Crosshair className="size-7 text-primary/40" />
-        <h1 className="font-serif text-5xl tracking-tight text-foreground/70">
+        <h1 className="font-sans text-5xl font-bold tracking-tight text-foreground/70">
           Analista CS:GO
         </h1>
       </motion.div>

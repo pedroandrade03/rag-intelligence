@@ -2,6 +2,10 @@
 
 import type { ReactNode } from "react";
 
+if (process.env.NODE_ENV === "development") {
+  import("react-grab");
+}
+
 import {
   isServer,
   QueryClient,
