@@ -1,17 +1,17 @@
-import { getDb } from "@/lib/db";
+import {
+  createStoredSession,
+  listStoredSessions,
+} from "@/lib/chat-session-store";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 export function GET() {
-  const db = getDb();
-  const sessions = db
-    .prepare("SELECT * FROM sessions ORDER BY created_at DESC")
-    .all();
-  return NextResponse.json(sessions);
+  return NextResponse.json(listStoredSessions());
 }
 
 export async function POST(req: Request) {
   const { id, title } = await req.json();
-  const db = getDb();
-  db.prepare("INSERT INTO sessions (id, title) VALUES (?, ?)").run(id, title);
-  return NextResponse.json({ id, title }, { status: 201 });
+  const session = createStoredSession(title, id);
+  return NextResponse.json(session, { status: 201 });
 }

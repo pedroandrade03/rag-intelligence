@@ -13,6 +13,7 @@ import {
   getChatModel,
   type RagMode,
 } from "@/lib/chat-models";
+import { upsertStoredSessionMessage } from "@/lib/chat-session-store";
 
 const RAG_API_URL = process.env.RAG_API_URL ?? "http://localhost:8000";
 const EMBEDDING_RUN_ID = process.env.EMBEDDING_RUN_ID ?? "20260306T025119Z";
@@ -105,10 +106,18 @@ export async function POST(req: Request) {
     messages,
     model,
     ragMode,
+    sessionId,
+    trigger,
   }: {
     messages: UIMessage[];
     model?: string;
     ragMode?: RagMode;
+    sessionId?: string;
+    trigger?:
+      | "submit-message"
+      | "regenerate-message"
+      | "submit-user-message"
+      | "regenerate-assistant-message";
   } = await req.json();
 
   const selectedModel = getChatModel(model ?? DEFAULT_MODEL);
@@ -126,6 +135,18 @@ export async function POST(req: Request) {
         ? undefined
         : ("auto" as const);
 
+  const isRegenerateTrigger =
+    trigger === "regenerate-message" ||
+    trigger === "regenerate-assistant-message";
+
+  if (sessionId && !isRegenerateTrigger) {
+    const lastMessage = messages.at(-1);
+
+    if (lastMessage?.role === "user") {
+      upsertStoredSessionMessage(sessionId, lastMessage);
+    }
+  }
+
   const result = streamText({
     model: ollama(modelId),
     system: effectiveMode === "off" ? SYSTEM_PROMPT_NO_TOOLS : SYSTEM_PROMPT,
@@ -138,5 +159,15 @@ export async function POST(req: Request) {
     stopWhen: stepCountIs(3),
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    generateMessageId: () => crypto.randomUUID(),
+    onFinish: async ({ isAborted, responseMessage }) => {
+      if (!sessionId || isAborted) {
+        return;
+      }
+
+      upsertStoredSessionMessage(sessionId, responseMessage);
+    },
+    originalMessages: messages,
+  });
 }

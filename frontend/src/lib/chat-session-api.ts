@@ -3,8 +3,6 @@ import type { UIMessage } from "ai";
 import {
   createDraftSession,
   type ChatSession,
-  type ChatSessionRecord,
-  toChatSession,
 } from "@/lib/chat-sessions";
 
 async function fetchJson<T>(
@@ -22,15 +20,8 @@ async function fetchJson<T>(
   return (await response.json()) as T;
 }
 
-export const sessionKeys = {
-  all: ["sessions"] as const,
-  list: () => ["sessions"] as const,
-  messages: (id: string) => ["sessions", id, "messages"] as const,
-};
-
 export async function listSessions(): Promise<ChatSession[]> {
-  const records = await fetchJson<ChatSessionRecord[]>("/api/sessions");
-  return records.map(toChatSession);
+  return fetchJson<ChatSession[]>("/api/sessions");
 }
 
 export async function createSession(title: string): Promise<ChatSession> {
@@ -68,17 +59,4 @@ export async function deleteSession(id: string) {
 
 export async function listSessionMessages(id: string): Promise<UIMessage[]> {
   return fetchJson<UIMessage[]>(`/api/sessions/${id}/messages`);
-}
-
-export async function persistSessionMessages(input: {
-  id: string;
-  messages: UIMessage[];
-}) {
-  await fetchJson(`/api/sessions/${input.id}/messages`, {
-    body: JSON.stringify({ messages: input.messages }),
-    headers: { "Content-Type": "application/json" },
-    method: "PUT",
-  });
-
-  return input.messages;
 }

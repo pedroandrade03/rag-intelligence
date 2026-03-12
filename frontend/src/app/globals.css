@@ -84,37 +84,38 @@
 }
 
 .dark {
-  --background: oklch(0.195 0.005 85);
-  --foreground: oklch(0.90 0.015 75);
-  --card: oklch(0.235 0.006 85);
-  --card-foreground: oklch(0.90 0.015 75);
-  --popover: oklch(0.235 0.006 85);
-  --popover-foreground: oklch(0.90 0.015 75);
-  --primary: oklch(0.72 0.10 55);
-  --primary-foreground: oklch(0.195 0.005 85);
-  --secondary: oklch(0.27 0.008 85);
-  --secondary-foreground: oklch(0.90 0.015 75);
-  --muted: oklch(0.27 0.008 85);
-  --muted-foreground: oklch(0.58 0.018 60);
-  --accent: oklch(0.27 0.010 85);
-  --accent-foreground: oklch(0.90 0.015 75);
+  /* Claude.ai dark palette — depth layers */
+  --background: hsl(30 3.3% 11.8%);          /* #1f1e1d  bg-200  body */
+  --foreground: hsl(48 33.3% 97.1%);          /* #faf9f5  text-000 */
+  --card: hsl(60 2.7% 14.5%);                 /* #262624  bg-100  sidebar/cards */
+  --card-foreground: hsl(48 33.3% 97.1%);
+  --popover: hsl(60 2.1% 18.4%);              /* #30302e  bg-000  elevated */
+  --popover-foreground: hsl(48 33.3% 97.1%);
+  --primary: hsl(15 63.1% 59.6%);             /* #d97757  accent-brand */
+  --primary-foreground: hsl(30 3.3% 11.8%);
+  --secondary: hsl(60 2.6% 7.6%);             /* #141413  bg-300  pressed */
+  --secondary-foreground: hsl(48 33.3% 97.1%);
+  --muted: hsl(60 2.1% 18.4%);                /* #30302e  bg-000 */
+  --muted-foreground: hsl(50 9% 73.7%);       /* #c2c0b6  text-200 */
+  --accent: hsl(60 2.1% 18.4%);               /* #30302e  bg-000 */
+  --accent-foreground: hsl(48 33.3% 97.1%);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.65 0.08 55);
-  --chart-1: oklch(0.72 0.10 55);
-  --chart-2: oklch(0.65 0.12 35);
-  --chart-3: oklch(0.60 0.10 80);
-  --chart-4: oklch(0.55 0.08 120);
-  --chart-5: oklch(0.50 0.06 160);
-  --sidebar: oklch(0.205 0.005 85);
-  --sidebar-foreground: oklch(0.90 0.015 75);
-  --sidebar-primary: oklch(0.72 0.10 55);
-  --sidebar-primary-foreground: oklch(0.205 0.005 85);
-  --sidebar-accent: oklch(0.27 0.010 85);
-  --sidebar-accent-foreground: oklch(0.90 0.015 75);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.65 0.08 55);
+  --border: hsl(51 16.5% 84.5% / 0.15);       /* rgba(222,220,209,0.15) */
+  --input: hsl(51 16.5% 84.5% / 0.15);
+  --ring: hsl(15 63.1% 59.6% / 0.5);          /* brand ring */
+  --chart-1: hsl(15 63.1% 59.6%);             /* brand */
+  --chart-2: hsl(210 70.9% 51.6%);            /* accent blue */
+  --chart-3: hsl(48 33.3% 60%);
+  --chart-4: hsl(30 20% 45%);
+  --chart-5: hsl(50 9% 40%);
+  --sidebar: hsl(60 2.7% 14.5%);              /* #262624  bg-100 */
+  --sidebar-foreground: hsl(48 33.3% 97.1%);
+  --sidebar-primary: hsl(15 63.1% 59.6%);
+  --sidebar-primary-foreground: hsl(30 3.3% 11.8%);
+  --sidebar-accent: hsl(60 2.1% 18.4%);       /* bg-000 */
+  --sidebar-accent-foreground: hsl(48 33.3% 97.1%);
+  --sidebar-border: hsl(51 16.5% 84.5% / 0.15);
+  --sidebar-ring: hsl(15 63.1% 59.6% / 0.5);
 }
 
 @layer base {
@@ -130,6 +131,26 @@
   textarea {
     font-family: inherit;
   }
+}
+
+/* Claude.ai input shadow — 3-state: idle → hover → focus */
+.claude-input-shadow {
+  transition: box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow:
+    rgba(0, 0, 0, 0.035) 0px 4px 20px 0px,
+    rgba(222, 220, 209, 0.15) 0px 0px 0px 0.5px;
+}
+
+.claude-input-shadow:hover {
+  box-shadow:
+    rgba(0, 0, 0, 0.035) 0px 4px 20px 0px,
+    rgba(222, 220, 209, 0.30) 0px 0px 0px 0.5px;
+}
+
+.claude-input-shadow:focus-within {
+  box-shadow:
+    rgba(0, 0, 0, 0.075) 0px 4px 20px 0px,
+    rgba(222, 220, 209, 0.30) 0px 0px 0px 0.5px;
 }
 
 /* Fix Radix ScrollArea display:table wrapper that breaks truncation */

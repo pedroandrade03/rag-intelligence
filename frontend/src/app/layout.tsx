@@ -5,7 +5,7 @@ import {
   Montserrat,
 } from "next/font/google";
 
-import { Providers } from "@/app/providers";
+import { DevTools } from "@/app/dev-tools";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -40,9 +40,8 @@ export default function RootLayout({
       <body
         className={`${montserrat.variable} ${geistMono.variable} ${instrumentSerif.variable} antialiased`}
       >
-        <Providers>
-          <TooltipProvider>{children}</TooltipProvider>
-        </Providers>
+        <DevTools />
+        <TooltipProvider>{children}</TooltipProvider>
       </body>
     </html>
   );

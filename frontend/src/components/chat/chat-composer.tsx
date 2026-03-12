@@ -51,16 +51,12 @@ interface ChatComposerProps {
 
 const composerClasses: Record<ChatComposerVariant, string> = {
   hero: cn(
-    "rounded-2xl border-border/30 bg-card/50 backdrop-blur-xl",
-    "shadow-lg shadow-black/10",
-    "transition-all duration-200",
-    "focus-within:!border-primary/25 focus-within:!shadow-xl focus-within:!shadow-primary/5"
+    "rounded-[20px] border-0 bg-popover backdrop-blur-xl",
+    "claude-input-shadow"
   ),
   panel: cn(
-    "rounded-2xl border-border/30 bg-card/50 backdrop-blur-xl",
-    "shadow-md shadow-black/5",
-    "transition-all duration-200",
-    "focus-within:!border-primary/25 focus-within:!shadow-lg focus-within:!shadow-primary/5"
+    "rounded-[20px] border-0 bg-popover backdrop-blur-xl",
+    "claude-input-shadow"
   ),
 };
 

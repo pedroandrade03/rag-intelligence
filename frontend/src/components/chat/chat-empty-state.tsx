@@ -108,10 +108,10 @@ export function ChatEmptyState({
         {SUGGESTIONS.map((suggestion) => (
           <button
             className={cn(
-              "flex items-center gap-2 rounded-full border border-border/40 bg-card/30 px-4 py-2",
-              "text-sm text-muted-foreground/70",
+              "flex items-center gap-2 rounded-full border border-border bg-popover/60 px-4 py-2",
+              "text-sm text-muted-foreground",
               "transition-all duration-200",
-              "hover:bg-accent/60 hover:text-foreground hover:border-border/60"
+              "hover:bg-popover hover:text-foreground hover:border-border"
             )}
             key={suggestion.label}
             onClick={() => onSuggestionClick(suggestion.query)}

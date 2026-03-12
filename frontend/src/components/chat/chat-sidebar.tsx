@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { MessageSquarePlus, PanelLeftClose, Trash2 } from "lucide-react";
+import { MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -31,73 +31,86 @@ export const ChatSidebar = memo(function ChatSidebar({
   return (
     <aside
       className={cn(
-        "flex flex-col border-r border-border/50 bg-card/40 transition-all duration-300 ease-in-out",
-        open ? "w-64" : "w-0 overflow-hidden border-r-0"
+        "flex flex-col border-r border-border bg-card transition-all duration-300 ease-in-out",
+        open ? "w-64" : "w-14"
       )}
+      style={{
+        backgroundImage:
+          "linear-gradient(to top, rgba(31,30,29,0.05), rgba(31,30,29,0.3))",
+      }}
     >
-      <div className="flex items-center justify-between px-4 py-4">
-        <span className="text-sm font-medium tracking-tight text-foreground/60">
-          RAG Intelligence
-        </span>
+      <div className={cn("flex items-center py-4", open ? "justify-between px-4" : "justify-center px-0")}>
+        {open && (
+          <span className="text-sm font-medium tracking-tight text-foreground/60">
+            RAG Intelligence
+          </span>
+        )}
         <Button
           className="text-muted-foreground/60 hover:text-foreground"
           onClick={onClose}
           size="icon-sm"
           variant="ghost"
         >
-          <PanelLeftClose className="size-4" />
+          {open ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
         </Button>
       </div>
 
-      <div className="px-3 pb-2">
+      <div className={cn(open ? "px-3" : "px-1.5", "pb-2")}>
         <Button
-          className="w-full justify-start gap-2 rounded-lg text-muted-foreground hover:text-foreground"
+          className={cn(
+            "w-full rounded-lg text-muted-foreground hover:text-foreground",
+            open ? "justify-start gap-2" : "justify-center px-0"
+          )}
           onClick={onNewChat}
           variant="ghost"
         >
-          <MessageSquarePlus className="size-4" />
-          Nova Conversa
+          <MessageSquarePlus className="size-4 shrink-0" />
+          {open && <span>Nova Conversa</span>}
         </Button>
       </div>
 
       <Separator className="opacity-30" />
 
-      <div className="px-3 py-2">
-        <p className="px-2 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/50">
-          Histórico
-        </p>
-      </div>
+      {open && (
+        <>
+          <div className="px-3 py-2">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/50">
+              Histórico
+            </p>
+          </div>
 
-      <ScrollArea className="flex-1 px-3">
-        <div className="space-y-0.5 overflow-hidden pb-4">
-          {sessions.map((session) => (
-            <div
-              className={cn(
-                "group flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-sm transition-colors",
-                session.id === activeChatId
-                  ? "bg-accent/80 text-foreground"
-                  : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-              )}
-              key={session.id}
-              onClick={() => onSelectChat(session.id)}
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {session.title}
-              </span>
-              <button
-                className="shrink-0 rounded p-1 text-muted-foreground/40 hover:text-destructive"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDeleteChat(session.id);
-                }}
-                type="button"
-              >
-                <Trash2 className="size-3" />
-              </button>
+          <ScrollArea className="flex-1 px-3">
+            <div className="space-y-0.5 overflow-hidden pb-4">
+              {sessions.map((session) => (
+                <div
+                  className={cn(
+                    "group flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-sm transition-colors",
+                    session.id === activeChatId
+                      ? "bg-accent/80 text-foreground"
+                      : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                  )}
+                  key={session.id}
+                  onClick={() => onSelectChat(session.id)}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {session.title}
+                  </span>
+                  <button
+                    className="shrink-0 rounded p-1 text-muted-foreground/40 hover:text-destructive"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteChat(session.id);
+                    }}
+                    type="button"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </ScrollArea>
+          </ScrollArea>
+        </>
+      )}
     </aside>
   );
 });
