@@ -105,3 +105,15 @@ def test_search_passes_filters():
     assert request.event_type == "kill"
     assert request.map_name == "de_dust2"
     assert request.top_k == 3
+
+
+def test_search_does_not_require_fastapi_threadpool_for_state_dependencies():
+    app = create_app(settings=_settings())
+    with _patch_search([_make_node()]), TestClient(app) as client:
+        with patch(
+            "fastapi.dependencies.utils.run_in_threadpool",
+            side_effect=AssertionError("run_in_threadpool should not be used for /search"),
+        ):
+            resp = client.post("/search", json={"query": "AK47 kills"})
+
+    assert resp.status_code == 200

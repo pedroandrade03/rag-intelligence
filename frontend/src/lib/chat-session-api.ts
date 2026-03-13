@@ -57,6 +57,12 @@ export async function deleteSession(id: string) {
   return id;
 }
 
+export async function resetSessions(): Promise<ChatSession> {
+  return fetchJson<ChatSession>("/api/sessions", {
+    method: "DELETE",
+  });
+}
+
 export async function listSessionMessages(id: string): Promise<UIMessage[]> {
   return fetchJson<UIMessage[]>(`/api/sessions/${id}/messages`);
 }

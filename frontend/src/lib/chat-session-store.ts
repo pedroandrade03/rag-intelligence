@@ -49,6 +49,21 @@ export function deleteStoredSession(id: string) {
   db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
 }
 
+export function resetStoredSessions(): ChatSession {
+  const db = getDb();
+  const session = createDraftSession();
+
+  db.transaction(() => {
+    db.prepare("DELETE FROM sessions").run();
+    db.prepare("INSERT INTO sessions (id, title) VALUES (?, ?)").run(
+      session.id,
+      session.title
+    );
+  })();
+
+  return session;
+}
+
 export function listStoredSessionMessages(id: string): UIMessage[] {
   const db = getDb();
   const rows = db

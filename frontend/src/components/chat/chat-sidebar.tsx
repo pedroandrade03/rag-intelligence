@@ -11,7 +11,9 @@ import { cn } from "@/lib/utils";
 
 interface ChatSidebarProps {
   activeChatId: string | null;
+  isBusy: boolean;
   onClose: () => void;
+  onClearChats: () => void;
   onDeleteChat: (id: string) => void;
   onNewChat: () => void;
   onSelectChat: (id: string) => void;
@@ -21,7 +23,9 @@ interface ChatSidebarProps {
 
 export const ChatSidebar = memo(function ChatSidebar({
   activeChatId,
+  isBusy,
   onClose,
+  onClearChats,
   onDeleteChat,
   onNewChat,
   onSelectChat,
@@ -61,6 +65,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             "w-full rounded-lg text-muted-foreground hover:text-foreground",
             open ? "justify-start gap-2" : "justify-center px-0"
           )}
+          disabled={isBusy}
           onClick={onNewChat}
           variant="ghost"
         >
@@ -85,6 +90,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 <div
                   className={cn(
                     "group flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-sm transition-colors",
+                    isBusy && "pointer-events-none opacity-60",
                     session.id === activeChatId
                       ? "bg-accent/80 text-foreground"
                       : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
@@ -97,6 +103,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                   </span>
                   <button
                     className="shrink-0 rounded p-1 text-muted-foreground/40 hover:text-destructive"
+                    disabled={isBusy}
                     onClick={(event) => {
                       event.stopPropagation();
                       onDeleteChat(session.id);
@@ -111,6 +118,23 @@ export const ChatSidebar = memo(function ChatSidebar({
           </ScrollArea>
         </>
       )}
+
+      <div className={cn("mt-auto border-t border-border/30", open ? "px-3 py-3" : "px-1.5 py-2")}>
+        <Button
+          aria-label="Excluir conversas"
+          className={cn(
+            "w-full rounded-lg text-destructive/80 hover:bg-destructive/10 hover:text-destructive",
+            open ? "justify-start gap-2" : "justify-center px-0"
+          )}
+          disabled={isBusy}
+          onClick={onClearChats}
+          title="Excluir conversas"
+          variant="ghost"
+        >
+          <Trash2 className="size-4 shrink-0" />
+          {open && <span>Excluir Conversas</span>}
+        </Button>
+      </div>
     </aside>
   );
 });

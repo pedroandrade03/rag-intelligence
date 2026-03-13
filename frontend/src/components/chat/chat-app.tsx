@@ -13,6 +13,7 @@ import {
   createSession,
   deleteSession,
   listSessionMessages,
+  resetSessions,
   updateSessionTitle,
 } from "@/lib/chat-session-api";
 import {
@@ -69,6 +70,8 @@ export function ChatApp({
   const [chatSessions, setChatSessions] = useState(initialSessions);
   const [activeChatId, setActiveChatId] = useState(initialActiveChatId);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isResettingSessions, setIsResettingSessions] = useState(false);
+  const messageLoadRequestRef = useRef(0);
   const messageCacheRef = useRef(
     new Map<string, UIMessage[]>([[initialActiveChatId, initialMessages]])
   );
@@ -85,6 +88,7 @@ export function ChatApp({
   });
 
   const isGenerating = status === "streaming" || status === "submitted";
+  const isBusy = isGenerating || isLoadingMessages || isResettingSessions;
   const hasMessages = messages.length > 0;
 
   const cacheActiveMessages = useCallback(() => {
@@ -124,10 +128,11 @@ export function ChatApp({
 
   const selectChat = useCallback(
     async (id: string) => {
-      if (id === activeChatId || isGenerating) {
+      if (id === activeChatId || isBusy) {
         return;
       }
 
+      const requestId = ++messageLoadRequestRef.current;
       cacheActiveMessages();
 
       const shouldLoad = !messageCacheRef.current.has(id);
@@ -137,21 +142,24 @@ export function ChatApp({
 
       try {
         await ensureCachedMessages(id);
+        if (requestId !== messageLoadRequestRef.current) {
+          return;
+        }
         setInput("");
         setActiveChatId(id);
       } catch (error) {
         console.error("Failed to load session messages", error);
       } finally {
-        if (shouldLoad) {
+        if (shouldLoad && requestId === messageLoadRequestRef.current) {
           setIsLoadingMessages(false);
         }
       }
     },
-    [activeChatId, cacheActiveMessages, ensureCachedMessages, isGenerating]
+    [activeChatId, cacheActiveMessages, ensureCachedMessages, isBusy]
   );
 
   const createNewChat = useCallback(async () => {
-    if (isGenerating) {
+    if (isBusy) {
       return;
     }
 
@@ -166,11 +174,11 @@ export function ChatApp({
     } catch (error) {
       console.error("Failed to create session", error);
     }
-  }, [cacheActiveMessages, isGenerating]);
+  }, [cacheActiveMessages, isBusy]);
 
   const deleteChatById = useCallback(
     async (id: string) => {
-      if (isGenerating) {
+      if (isBusy) {
         return;
       }
 
@@ -207,6 +215,7 @@ export function ChatApp({
       }
 
       const nextActiveId = remaining[0].id;
+      const requestId = ++messageLoadRequestRef.current;
       const shouldLoad = !messageCacheRef.current.has(nextActiveId);
       if (shouldLoad) {
         setIsLoadingMessages(true);
@@ -214,24 +223,54 @@ export function ChatApp({
 
       try {
         await ensureCachedMessages(nextActiveId);
+        if (requestId !== messageLoadRequestRef.current) {
+          return;
+        }
         setInput("");
         setActiveChatId(nextActiveId);
       } catch (error) {
         console.error("Failed to load replacement session messages", error);
       } finally {
-        if (shouldLoad) {
+        if (shouldLoad && requestId === messageLoadRequestRef.current) {
           setIsLoadingMessages(false);
         }
       }
     },
-    [activeChatId, ensureCachedMessages, isGenerating]
+    [activeChatId, ensureCachedMessages, isBusy]
   );
+
+  const clearAllChats = useCallback(async () => {
+    if (isBusy) {
+      return;
+    }
+
+    if (!window.confirm("Excluir todas as conversas? Essa acao nao pode ser desfeita.")) {
+      return;
+    }
+
+    setIsResettingSessions(true);
+    messageLoadRequestRef.current += 1;
+
+    try {
+      const session = await resetSessions();
+      messageCacheRef.current.clear();
+      messageCacheRef.current.set(session.id, []);
+      setChatSessions([session]);
+      setInput("");
+      setActiveChatId(session.id);
+      setIsLoadingMessages(false);
+    } catch (error) {
+      console.error("Failed to reset sessions", error);
+    } finally {
+      setIsResettingSessions(false);
+    }
+  }, [isBusy]);
 
   const sendPrompt = useCallback(
     (text: string) => {
       const trimmed = text.trim();
 
-      if (!trimmed || isGenerating) {
+      if (!trimmed || isBusy) {
         return;
       }
 
@@ -259,7 +298,7 @@ export function ChatApp({
     [
       activeChatId,
       effectiveRagMode,
-      isGenerating,
+      isBusy,
       messages,
       renameActiveSession,
       selectedModel,
@@ -279,7 +318,9 @@ export function ChatApp({
     <div className="flex h-dvh bg-background">
       <ChatSidebar
         activeChatId={activeChatId}
+        isBusy={isBusy}
         onClose={toggleSidebar}
+        onClearChats={clearAllChats}
         onDeleteChat={deleteChatById}
         onNewChat={createNewChat}
         onSelectChat={selectChat}
