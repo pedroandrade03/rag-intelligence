@@ -8,11 +8,13 @@ from rag_intelligence.providers import ProviderRegistry
 from rag_intelligence.settings import AppSettings
 
 
-def get_settings(request: Request) -> AppSettings:
+# Keep these lightweight request-state lookups async so FastAPI does not
+# dispatch them through Starlette's AnyIO-backed threadpool.
+async def get_settings(request: Request) -> AppSettings:
     return request.app.state.settings
 
 
-def get_registry(request: Request) -> ProviderRegistry:
+async def get_registry(request: Request) -> ProviderRegistry:
     return request.app.state.registry
 
 

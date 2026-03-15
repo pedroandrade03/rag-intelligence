@@ -58,13 +58,13 @@ flowchart LR
     subgraph ia[Camada de IA — LlamaIndex]
         fe["Construção de Documents<br/>Implementado"]
         ingest["IngestionPipeline<br/>(embed + store)<br/>Implementado"]
-        rag["QueryEngine / ChatEngine<br/>Planejado"]
+        rag["RAG Synthesis<br/>(sync + streaming)<br/>Implementado"]
         ml["Analytics e Modelos<br/>Planejado"]
     end
 
     subgraph app[Camada de Aplicação]
-        api["FastAPI + Streaming<br/>Parcial (skeleton)"]
-        frontend["Frontend Next.js<br/>Planejado"]
+        api["FastAPI + Streaming<br/>Implementado"]
+        frontend["Frontend Next.js<br/>Implementado"]
     end
 
     subgraph mlops[Camada de MLOps]
@@ -94,9 +94,8 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class bronze,compose,importer,silver,gold,pg,fe,ingest,ollama implemented;
-    class api partial;
-    class rag,ml,frontend,mlflow planned;
+    class bronze,compose,importer,silver,gold,pg,fe,ingest,ollama,rag,api,frontend implemented;
+    class ml,mlflow planned;
 ```
 
 ### Pipeline de Dados
@@ -133,12 +132,12 @@ flowchart LR
     docs["Document JSONL (text, metadata)<br/>Implementado"]
     ingest["IngestionPipeline<br/>(1 document = 1 embedding)<br/>Implementado"]
     pgvector["PostgreSQL + pgvector<br/>Implementado"]
-    index["VectorStoreIndex<br/>Planejado"]
-    query["QueryEngine / ChatEngine<br/>Planejado"]
+    index["VectorStoreIndex<br/>Implementado"]
+    query["RAG Synthesis<br/>Implementado"]
     ollama["Ollama<br/>Implementado"]
     analytics["Analytics de combate<br/>Planejado"]
     models["Modelos preditivos<br/>Planejado"]
-    api["FastAPI + Streaming<br/>Parcial"]
+    api["FastAPI + Streaming<br/>Implementado"]
 
     gold --> docs --> ingest --> pgvector
     pgvector --> index --> query --> api
@@ -149,9 +148,8 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class gold,docs,ingest,pgvector,ollama implemented;
-    class api partial;
-    class index,query,analytics,models planned;
+    class gold,docs,ingest,pgvector,ollama,index,query,api implemented;
+    class analytics,models planned;
 ```
 
 ### Fluxo de Aplicação e MLOps
@@ -159,9 +157,9 @@ flowchart LR
 ```mermaid
 flowchart LR
     user["Usuário"]
-    frontend["Frontend Next.js<br/>Planejado"]
-    api["FastAPI + Streaming<br/>Parcial"]
-    query["LlamaIndex QueryEngine<br/>Planejado"]
+    frontend["Frontend Next.js<br/>Implementado"]
+    api["FastAPI + Streaming<br/>Implementado"]
+    query["RAG Synthesis<br/>Implementado"]
     pgvector["PostgreSQL + pgvector<br/>Implementado"]
     ollama["Ollama<br/>Implementado"]
     gold["MinIO Gold<br/>Implementado"]
@@ -181,15 +179,14 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class gold,pgvector,ollama implemented;
-    class api partial;
-    class frontend,query,models,mlflow planned;
+    class gold,pgvector,ollama,frontend,api,query implemented;
+    class models,mlflow planned;
 ```
 
 ### Estado Atual
 
-- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI sobre pgvector), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, CI (ruff + pyright + pytest).
-- **Planejado**: PB09-PB11 (API FastAPI + frontend Next.js), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
+- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI e endpoint `/search`), PB09 (API FastAPI com `/search` e `/rag/query` com streaming SSE), PB11 (frontend Next.js 16 com App Router, AI SDK, bootstrap server-side das sessoes e persistencia local em SQLite via route handlers), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, CI (ruff + pyright + pytest + eslint + next build).
+- **Planejado**: PB10 (stats de armas/dano), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
 
 ---
 
@@ -486,6 +483,139 @@ make search QUERY="dano de ak47" EMBEDDING_RUN_ID="embeddings-smoke"
 ```
 
 A PB08 entrega retrieval local reutilizavel para a PB09, que depois expora essa mesma logica via FastAPI.
+
+# Implementacao PB09
+
+## Objetivo
+
+Expor a busca semantica (PB08) e a sintese RAG via API FastAPI com suporte a streaming SSE.
+
+## Endpoints
+
+### POST /search
+
+Busca semantica sobre a tabela vetorial. Aceita os mesmos filtros da PB08.
+
+Body:
+
+- `query` (string, obrigatorio)
+- `embedding_run_id` (string, obrigatorio — ou usa `DEFAULT_EMBEDDING_RUN_ID`)
+- `top_k` (int, opcional, default 5)
+- `event_type`, `map`, `file`, `round` (opcionais)
+
+Retorna JSON com `query`, `embedding_run_id`, `top_k`, `filters`, `results_returned`, `retrieval_ms` e `results`.
+
+### POST /rag/query
+
+Sintese RAG: recupera documentos relevantes e gera resposta com LLM.
+
+Body:
+
+- `query` (string, obrigatorio)
+- `embedding_run_id` (string, obrigatorio — ou usa `DEFAULT_EMBEDDING_RUN_ID`)
+- `top_k` (int, opcional, default 5)
+- `stream` (bool, opcional, default false)
+- `event_type`, `map`, `file`, `round` (opcionais)
+
+Modo sync: retorna JSON com `answer`, `sources`, `retrieval_ms` e `generation_ms`.
+
+Modo streaming (`stream: true`): retorna `text/event-stream` com eventos SSE:
+
+- `event: sources` — lista de documentos recuperados
+- `event: token` — tokens incrementais da resposta
+- `event: done` — sinaliza fim com metricas
+
+## Execucao
+
+Via Makefile:
+
+```bash
+make api
+```
+
+Via Docker Compose:
+
+```bash
+docker compose up -d rag-api
+```
+
+# Implementacao PB11
+
+## Objetivo
+
+Frontend Next.js para interação com o RAG via chat, com streaming de respostas, histórico local de sessões e integração com Ollama + busca semântica do backend.
+
+## Stack
+
+- Next.js 16 com App Router e React 19
+- AI SDK (`ai` + `@ai-sdk/react`) para streaming e estado do chat
+- SQLite (`better-sqlite3`) para persistência local de sessões e mensagens
+- Route Handlers do Next.js para `chat` e CRUD de sessões
+- `ollama-ai-provider-v2` para comunicação com modelos locais
+- shadcn/ui + Tailwind CSS v4 para interface
+- `react-grab` carregado apenas em desenvolvimento para debug visual da UI
+
+## Arquitetura atual
+
+- `frontend/src/app/page.tsx` é um Server Component dinâmico que faz o bootstrap inicial da sessão ativa e das mensagens já persistidas.
+- `frontend/src/components/chat/chat-app.tsx` é a ilha cliente principal. Ela usa `useChat` como fonte de verdade do chat ativo e mantém apenas um cache local por sessão para navegação.
+- `frontend/src/app/api/chat/route.ts` recebe os requests do AI SDK, persiste a mensagem do usuário, executa `streamText(...)` com Ollama e salva a resposta final do assistente.
+- `frontend/src/app/api/sessions/*` expõe listagem, criação, renomeação, remoção e carregamento de mensagens das sessões.
+- `frontend/src/lib/chat-session-store.ts` concentra a leitura e escrita no SQLite.
+- `frontend/src/lib/db.ts` cria `frontend/data/chat.db` e garante o schema das tabelas `sessions` e `messages`.
+- `frontend/src/app/dev-tools.tsx` carrega `react-grab` somente em `development`.
+
+## Fluxo do chat
+
+1. O servidor renderiza a página com a sessão mais recente e as mensagens iniciais.
+2. O cliente envia novas mensagens com `useChat`.
+3. O route handler `/api/chat` usa um tool de busca para consultar `POST {RAG_API_URL}/search` quando o modo RAG está ativo.
+4. O modelo local é chamado via Ollama e a resposta é streamada para a UI.
+5. Sessões e mensagens ficam persistidas no SQLite local do frontend.
+
+## Variáveis principais
+
+- `RAG_API_URL` — URL base da API FastAPI usada pela ferramenta de busca. Default: `http://localhost:8000`
+- `EMBEDDING_RUN_ID` — run de embeddings consultado pela busca semântica
+- `OLLAMA_BASE_URL` — URL base do Ollama. Default: `http://localhost:11434`
+- `OLLAMA_MODEL` — modelo default usado pelo chat quando o usuário não seleciona outro
+
+## Estrutura de pastas
+
+- `frontend/src/app/page.tsx` — bootstrap server-side da UI
+- `frontend/src/components/chat/chat-app.tsx` — estado cliente do chat
+- `frontend/src/app/api/chat/route.ts` — streaming AI SDK + persistência da resposta
+- `frontend/src/app/api/sessions/` — CRUD das sessões
+- `frontend/src/lib/chat-session-store.ts` — acesso ao SQLite
+- `frontend/src/lib/chat-models.ts` — catálogo de modelos e modos RAG
+- `frontend/src/components/ai-elements/` — componentes de chat baseados em vendor code
+- `frontend/src/components/ui/` — componentes de interface reutilizáveis
+
+## Execução
+
+Dev server:
+
+```bash
+make frontend
+```
+
+Build de produção:
+
+```bash
+make frontend-build
+```
+
+Reset do banco de chat:
+
+```bash
+make db-reset
+```
+
+CI local do frontend:
+
+```bash
+make ci-frontend
+```
 
 # Implementação PB01
 
