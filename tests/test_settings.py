@@ -55,7 +55,7 @@ def test_from_env_uses_defaults_when_keys_absent():
     assert settings.pg_embed_dim == 768
     assert settings.ollama_base_url == "http://localhost:11434"
     assert settings.ollama_embed_batch_size == 32
-    assert settings.default_llm == "ollama/qwen2.5"
+    assert settings.default_llm == "ollama/qwen2.5:7b-instruct-q4_K_M"
     assert settings.api_port == 8000
 
 

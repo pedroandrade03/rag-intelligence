@@ -13,7 +13,7 @@ def _settings(**overrides: str) -> AppSettings:
         "OPENAI_API_KEY": "",
         "ANTHROPIC_API_KEY": "",
         "VOYAGE_API_KEY": "",
-        "DEFAULT_LLM": "ollama/qwen2.5",
+        "DEFAULT_LLM": "ollama/qwen2.5:7b-instruct-q4_K_M",
         "DEFAULT_EMBED_MODEL": "ollama/nomic-embed-text",
         "OLLAMA_EMBED_BATCH_SIZE": "32",
     }
@@ -25,7 +25,7 @@ def test_available_llms_only_ollama_when_no_api_keys():
     registry = ProviderRegistry(_settings())
     llms = registry.available_llms()
 
-    assert "ollama/qwen2.5" in llms
+    assert "ollama/qwen2.5:7b-instruct-q4_K_M" in llms
     assert "gpt-4o" not in llms
     assert "claude-sonnet" not in llms
 
@@ -65,7 +65,7 @@ def test_get_llm_unknown_provider_falls_back_to_ollama():
     llm = registry.get_llm("nonexistent-provider")
     # Should fall back to Ollama and return a valid LLM object
     assert llm is not None
-    assert "ollama/qwen2.5" in registry._llm_cache
+    assert "ollama/qwen2.5:7b-instruct-q4_K_M" in registry._llm_cache
 
 
 def test_get_llm_caches_instance():

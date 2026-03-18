@@ -21,6 +21,7 @@ from rag_intelligence.embeddings import (
     get_embedding_run_progress,
     run_embedding_ingest,
 )
+from rag_intelligence.embeddings_pipeline import _embed_document_batch
 from rag_intelligence.settings import AppSettings
 
 
@@ -176,6 +177,21 @@ class FakePipeline:
         if self.vector_store is not None:
             self.vector_store.add(nodes)
         return nodes
+
+
+class NaNFailingPipeline(FakePipeline):
+    def run(self, documents: list[Document], **kwargs: object) -> list[FakeNode]:
+        del kwargs
+        if any("nan-trigger" in document.text for document in documents):
+            raise RuntimeError("failed to encode response: json: unsupported value: NaN")
+        return super().run(documents)
+
+
+class GenericFailingPipeline(FakePipeline):
+    def run(self, documents: list[Document], **kwargs: object) -> list[FakeNode]:
+        del documents
+        del kwargs
+        raise RuntimeError("simulated transport failure")
 
 
 def test_build_embedding_keys_use_embeddings_prefix() -> None:
@@ -407,6 +423,49 @@ def test_run_embedding_ingest_reads_manifest_indexes_documents_and_uploads_repor
     assert embedding_report["summary"]["num_workers"] == 4
     assert embedding_report["summary"]["parallel_batches"] == 4
     assert embedding_report["summary"]["resume_enabled"] is False
+
+
+def test_embed_document_batch_handles_nan_error_by_splitting_and_skipping_bad_doc() -> None:
+    documents = [
+        Document(text="ok-one", doc_id="20260308T180500Z:1", metadata={"doc_id": "1"}),
+        Document(
+            text="nan-trigger",
+            doc_id="20260308T180500Z:2",
+            metadata={"doc_id": "2"},
+        ),
+        Document(text="ok-three", doc_id="20260308T180500Z:3", metadata={"doc_id": "3"}),
+    ]
+
+    batch = _embed_document_batch(
+        documents,
+        app_settings=build_app_settings(embed_dim=3),
+        embed_model_name="fake/embed",
+        registry_factory=lambda settings: FakeRegistry(settings, dimension=3),
+        pipeline_factory=NaNFailingPipeline,
+        num_workers=4,
+    )
+
+    assert batch.rows_indexed == 2
+    assert [node.id_ for node in batch.nodes] == [
+        "20260308T180500Z:1",
+        "20260308T180500Z:3",
+    ]
+
+
+def test_embed_document_batch_raises_for_non_nan_pipeline_failures() -> None:
+    documents = [
+        Document(text="ok-one", doc_id="20260308T180500Z:1", metadata={"doc_id": "1"}),
+    ]
+
+    with pytest.raises(RuntimeError, match="simulated transport failure"):
+        _embed_document_batch(
+            documents,
+            app_settings=build_app_settings(embed_dim=3),
+            embed_model_name="fake/embed",
+            registry_factory=lambda settings: FakeRegistry(settings, dimension=3),
+            pipeline_factory=GenericFailingPipeline,
+            num_workers=4,
+        )
 
 
 def test_run_embedding_ingest_supports_smoke_limit() -> None:

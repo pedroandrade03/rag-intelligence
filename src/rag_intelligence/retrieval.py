@@ -131,11 +131,11 @@ def build_search_result(item: NodeWithScore, *, rank: int) -> SearchResult:
 def search_events(
     request: SearchRequest,
     *,
-    app_settings_factory=AppSettings.from_env,
-    registry_factory=ProviderRegistry,
-    vector_store_factory=create_vector_store,
-    vector_table_exists_fn=pgvector_data_table_exists,
-    index_factory=VectorStoreIndex.from_vector_store,
+    app_settings_factory: Any = AppSettings.from_env,
+    registry_factory: Any = ProviderRegistry,
+    vector_store_factory: Any = create_vector_store,
+    vector_table_exists_fn: Any = pgvector_data_table_exists,
+    index_factory: Any = VectorStoreIndex.from_vector_store,
 ) -> SearchResponse:
     app_settings = app_settings_factory()
     if not vector_table_exists_fn(app_settings):

@@ -44,6 +44,9 @@ class AppSettings:
     api_port: int
     cors_origins: tuple[str, ...]
 
+    # RAG defaults
+    default_embedding_run_id: str
+
     # Logging
     log_level: str
     log_json: bool | None
@@ -75,10 +78,11 @@ class AppSettings:
             openai_api_key=raw.get("OPENAI_API_KEY", "").strip(),
             anthropic_api_key=raw.get("ANTHROPIC_API_KEY", "").strip(),
             voyage_api_key=raw.get("VOYAGE_API_KEY", "").strip(),
-            default_llm=raw.get("DEFAULT_LLM", "ollama/qwen2.5"),
+            default_llm=raw.get("DEFAULT_LLM", "ollama/qwen2.5:7b-instruct-q4_K_M"),
             default_embed_model=raw.get("DEFAULT_EMBED_MODEL", "ollama/nomic-embed-text"),
             api_host=raw.get("API_HOST", "0.0.0.0"),
             api_port=_parse_int(raw, "API_PORT", 8000),
+            default_embedding_run_id=raw.get("DEFAULT_EMBEDDING_RUN_ID", "").strip(),
             cors_origins=_parse_cors_origins(raw.get("CORS_ORIGINS", "*")),
             log_level=raw.get("LOG_LEVEL", "INFO").strip().upper(),
             log_json=_parse_optional_bool(raw.get("LOG_JSON", "")),

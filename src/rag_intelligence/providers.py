@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
-OLLAMA_LLM_FALLBACK = "ollama/qwen2.5"
+OLLAMA_LLM_FALLBACK = "ollama/qwen2.5:7b-instruct-q4_K_M"
 OLLAMA_EMBED_FALLBACK = "ollama/nomic-embed-text"
 
 
