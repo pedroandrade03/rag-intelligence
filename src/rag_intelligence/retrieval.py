@@ -26,6 +26,8 @@ class SearchRequest:
     map_name: str | None = None
     file_name: str | None = None
     round_number: int | None = None
+    document_tier: str | None = None
+    weapon: str | None = None
 
     def __post_init__(self) -> None:
         if not self.query.strip():
@@ -46,6 +48,10 @@ class SearchRequest:
             filters["file"] = self.file_name
         if self.round_number is not None:
             filters["round"] = self.round_number
+        if self.document_tier is not None:
+            filters["document_tier"] = self.document_tier
+        if self.weapon is not None:
+            filters["weapon"] = self.weapon
         return filters
 
 
@@ -89,6 +95,10 @@ def build_metadata_filters(request: SearchRequest) -> MetadataFilters:
         filters.append(MetadataFilter(key="file", value=request.file_name))
     if request.round_number is not None:
         filters.append(MetadataFilter(key="round", value=request.round_number))
+    if request.document_tier is not None:
+        filters.append(MetadataFilter(key="document_tier", value=request.document_tier))
+    if request.weapon is not None:
+        filters.append(MetadataFilter(key="weapon", value=request.weapon))
     return MetadataFilters(filters=filters)
 
 

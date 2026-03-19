@@ -25,10 +25,13 @@ LOGGER = logging.getLogger(__name__)
 
 QA_PROMPT = PromptTemplate(
     "You are a CS:GO / Counter-Strike professional analyst. "
-    "Answer the user's question using ONLY the match event data provided below. "
-    "If the data is insufficient, say so — never fabricate information. "
-    "Be precise, cite specific events when relevant, and use numbers from the data.\n\n"
-    "--- MATCH EVENT DATA ---\n{context_str}\n--- END DATA ---\n\n"
+    "Answer the user's question using ONLY the statistical summaries provided below. "
+    "The context contains pre-aggregated profiles (weapon-map profiles, map overviews, "
+    "hotspot zones, round-type profiles, and global weapon profiles) derived from "
+    "millions of recorded match events. "
+    "Use the numbers directly — do not fabricate or extrapolate beyond what is stated. "
+    "If the data is insufficient to answer, say so clearly.\n\n"
+    "--- STATISTICAL SUMMARIES ---\n{context_str}\n--- END DATA ---\n\n"
     "User question: {query_str}"
 )
 

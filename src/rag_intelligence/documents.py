@@ -3,11 +3,11 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import math
 import tempfile
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -25,34 +25,13 @@ from rag_intelligence.minio_utils import (
 LOGGER = logging.getLogger(__name__)
 
 REQUIRED_GOLD_COLUMNS = {"event_type", "file", "round", "map", "source_file"}
-NUMERIC_METADATA_FIELDS = {
-    "round",
-    "hp_dmg",
-    "arm_dmg",
-    "att_pos_x",
-    "att_pos_y",
-    "vic_pos_x",
-    "vic_pos_y",
-    "tick",
-    "seconds",
-    "start_seconds",
-    "end_seconds",
-    "att_rank",
-    "vic_rank",
-    "ct_eq_val",
-    "t_eq_val",
-    "ct_alive",
-    "t_alive",
-    "nade_land_x",
-    "nade_land_y",
-    "avg_match_rank",
-    "source_line_number",
-}
-BOOLEAN_METADATA_FIELDS = {"is_bomb_planted"}
 EVENT_TYPE_DAMAGE = "damage"
 EVENT_TYPE_GRENADE = "grenade"
 EVENT_TYPE_KILL = "kill"
 EVENT_TYPE_ROUND_META = "round_meta"
+
+# Coordinate bucket size for hotspot zone grid (CS:GO map units)
+HOTSPOT_GRID_SIZE = 500
 
 
 @dataclass(frozen=True)
@@ -93,178 +72,574 @@ def build_document_quality_report_key(dataset_prefix: str, run_id: str) -> str:
     return f"{build_document_object_prefix(dataset_prefix, run_id)}quality_report.json"
 
 
-def build_doc_id(document_run_id: str, line_number: int) -> str:
-    return f"{document_run_id}:{line_number}"
+def build_doc_id(document_run_id: str, doc_index: int) -> str:
+    return f"{document_run_id}:{doc_index}"
 
 
-def _parse_number(value: str) -> int | float | str:
+# ---------------------------------------------------------------------------
+# Shared utilities
+# ---------------------------------------------------------------------------
+
+
+def _safe_float(value: str | None) -> float | None:
+    if not value:
+        return None
     try:
-        number = Decimal(value)
-    except InvalidOperation:
-        return value
-
-    if not number.is_finite():
-        return value
-    if number == number.to_integral_value():
-        return int(number)
-    return float(number)
+        result = float(value)
+        return result if math.isfinite(result) else None
+    except (ValueError, TypeError):
+        return None
 
 
-def _parse_bool(value: str) -> bool | str:
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return value
+def _grid_bucket(coord: float | None) -> int | None:
+    if coord is None:
+        return None
+    return int(math.floor(coord / HOTSPOT_GRID_SIZE)) * HOTSPOT_GRID_SIZE
 
 
-def _coerce_metadata_value(field: str, value: str) -> Any:
-    if field in BOOLEAN_METADATA_FIELDS:
-        return _parse_bool(value)
-    if field in NUMERIC_METADATA_FIELDS:
-        return _parse_number(value)
-    return value
+def _top_n(counter: Counter, n: int = 5) -> list[tuple[str, int]]:
+    return counter.most_common(n)
 
 
-def _append_token(tokens: list[str], key: str, value: str | None) -> None:
-    cleaned = clean_cell(value)
-    if cleaned is None:
-        return
-    tokens.append(f"{key}={cleaned}")
+def _pct(part: int | float, total: int | float) -> float:
+    return round(part / total * 100, 1) if total else 0.0
 
 
-def _append_position_tokens(tokens: list[str], row: dict[str, str | None]) -> None:
-    fields = (
-        "att_pos_x",
-        "att_pos_y",
-        "vic_pos_x",
-        "vic_pos_y",
-        "nade_land_x",
-        "nade_land_y",
-    )
-    for field in fields:
-        _append_token(tokens, field, row.get(field))
+# ---------------------------------------------------------------------------
+# Tier 1 — Weapon-Map Profiles: (map, weapon, event_type in {damage, kill})
+# ---------------------------------------------------------------------------
 
 
-def build_document_text(row: dict[str, str | None]) -> str:
-    event_type = clean_cell(row.get("event_type")) or "event"
-    map_value = clean_cell(row.get("map")) or "unknown_map"
-    file_value = clean_cell(row.get("file")) or "unknown_file"
-    round_value = clean_cell(row.get("round")) or "unknown_round"
-
-    tokens: list[str] = []
-    if event_type == EVENT_TYPE_DAMAGE:
-        lead = f"Evento damage em map={map_value} file={file_value} round={round_value}."
-        for field in (
-            "weapon",
-            "hp_dmg",
-            "arm_dmg",
-            "hitbox",
-            "att_team",
-            "vic_team",
-            "att_side",
-            "vic_side",
-            "tick",
-            "seconds",
-            "source_file",
-        ):
-            _append_token(tokens, field, row.get(field))
-        _append_position_tokens(tokens, row)
-        return " ".join([lead, *tokens]).strip()
-
-    if event_type == EVENT_TYPE_GRENADE:
-        lead = f"Evento grenade em map={map_value} file={file_value} round={round_value}."
-        for field in (
-            "weapon",
-            "nade",
-            "hp_dmg",
-            "arm_dmg",
-            "bomb_site",
-            "att_team",
-            "vic_team",
-            "att_side",
-            "vic_side",
-            "tick",
-            "seconds",
-            "source_file",
-        ):
-            _append_token(tokens, field, row.get(field))
-        _append_position_tokens(tokens, row)
-        return " ".join([lead, *tokens]).strip()
-
-    if event_type == EVENT_TYPE_KILL:
-        lead = f"Evento kill em map={map_value} file={file_value} round={round_value}."
-        for field in (
-            "weapon",
-            "wp_type",
-            "att_team",
-            "vic_team",
-            "att_side",
-            "vic_side",
-            "ct_alive",
-            "t_alive",
-            "is_bomb_planted",
-            "tick",
-            "seconds",
-            "source_file",
-        ):
-            _append_token(tokens, field, row.get(field))
-        _append_position_tokens(tokens, row)
-        return " ".join([lead, *tokens]).strip()
-
-    if event_type == EVENT_TYPE_ROUND_META:
-        lead = f"Resumo round_meta em map={map_value} file={file_value} round={round_value}."
-        for field in (
-            "winner_team",
-            "winner_side",
-            "round_type",
-            "ct_eq_val",
-            "t_eq_val",
-            "start_seconds",
-            "end_seconds",
-            "avg_match_rank",
-            "source_file",
-        ):
-            _append_token(tokens, field, row.get(field))
-        return " ".join([lead, *tokens]).strip()
-
-    lead = f"Evento {event_type} em map={map_value} file={file_value} round={round_value}."
-    for field, value in row.items():
-        if field in {"event_type", "map", "file", "round"}:
-            continue
-        _append_token(tokens, field, value)
-    return " ".join([lead, *tokens]).strip()
-
-
-def build_document_metadata(
-    row: dict[str, str | None],
-    settings: DocumentSettings,
-    *,
-    doc_id: str,
-    source_line_number: int,
-) -> dict[str, Any]:
-    required_metadata = {
-        "doc_id": doc_id,
-        "source_run_id": settings.gold_source_run_id,
-        "document_run_id": settings.document_run_id,
-        "dataset_prefix": settings.document_dataset_prefix,
-        "event_type": clean_cell(row.get("event_type")) or "",
-        "file": clean_cell(row.get("file")) or "",
-        "round": _coerce_metadata_value("round", clean_cell(row.get("round")) or "0"),
-        "map": clean_cell(row.get("map")) or "",
-        "source_file": clean_cell(row.get("source_file")) or "",
-        "source_line_number": source_line_number,
+def _new_tier1_acc() -> dict[str, Any]:
+    return {
+        "count": 0,
+        "sum_hp": 0.0,
+        "sum_arm": 0.0,
+        "max_hp": 0,
+        "headshot_count": 0,
+        "hitbox_counter": Counter(),
+        "att_side_counter": Counter(),
     }
 
-    metadata = dict(required_metadata)
-    for field, raw_value in row.items():
-        cleaned = clean_cell(raw_value)
-        if cleaned is None:
-            continue
-        metadata[field] = _coerce_metadata_value(field, cleaned)
 
-    return metadata
+def _update_tier1(
+    acc: dict,
+    row: dict[str, str | None],
+    event_type: str,
+) -> None:
+    map_val = clean_cell(row.get("map"))
+    weapon = clean_cell(row.get("weapon"))
+    if not map_val or not weapon:
+        return
+    key = (map_val, weapon, event_type)
+    entry = acc[key]
+    entry["count"] += 1
+    hp = _safe_float(row.get("hp_dmg"))
+    arm = _safe_float(row.get("arm_dmg"))
+    if hp is not None:
+        entry["sum_hp"] += hp
+        if hp > entry["max_hp"]:
+            entry["max_hp"] = int(hp)
+    if arm is not None:
+        entry["sum_arm"] += arm
+    hitbox = clean_cell(row.get("hitbox"))
+    if hitbox:
+        entry["hitbox_counter"][hitbox] += 1
+        if hitbox.lower() == "head":
+            entry["headshot_count"] += 1
+    att_side = clean_cell(row.get("att_side"))
+    if att_side:
+        entry["att_side_counter"][att_side] += 1
+
+
+def build_weapon_map_profile_text(
+    map_val: str,
+    weapon: str,
+    event_type: str,
+    entry: dict[str, Any],
+    total_events_on_map: int,
+) -> str:
+    count = entry["count"]
+    avg_hp = round(entry["sum_hp"] / count, 1) if count else 0.0
+    avg_arm = round(entry["sum_arm"] / count, 1) if count else 0.0
+    max_hp = entry["max_hp"]
+    headshot_rate = _pct(entry["headshot_count"], count)
+    top_hitboxes = _top_n(entry["hitbox_counter"], 4)
+    hitbox_str = (
+        ", ".join(f"{hb} ({_pct(c, count)}%)" for hb, c in top_hitboxes)
+        if top_hitboxes
+        else "N/A"
+    )
+    side_dist = _top_n(entry["att_side_counter"], 2)
+    side_str = (
+        ", ".join(f"{s} {_pct(c, count)}%" for s, c in side_dist) if side_dist else "N/A"
+    )
+    pct_of_map = _pct(count, total_events_on_map)
+    if event_type == EVENT_TYPE_DAMAGE:
+        return (
+            f"Perfil de Arma: {weapon} em {map_val} (eventos de dano). "
+            f"Com base em {count:,} instâncias de dano registradas: "
+            f"Dano HP médio por acerto: {avg_hp} | Máximo: {max_hp}. "
+            f"Dano de armadura médio: {avg_arm}. "
+            f"Taxa de headshot: {headshot_rate}% dos acertos. "
+            f"Hitboxes mais atingidas: {hitbox_str}. "
+            f"Distribuição por lado atacante: {side_str}. "
+            f"Esta arma representa {pct_of_map}% dos eventos de dano em {map_val}."
+        )
+    return (
+        f"Perfil de Mortes: {weapon} em {map_val} (eventos de kill). "
+        f"Total de mortes registradas: {count:,}. "
+        f"Taxa de headshot fatal: {headshot_rate}%. "
+        f"Hitboxes fatais mais comuns: {hitbox_str}. "
+        f"Distribuição por lado atacante: {side_str}. "
+        f"Esta arma representa {pct_of_map}% dos eventos de kill em {map_val}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tier 2 — Map Overview: (map)
+# ---------------------------------------------------------------------------
+
+
+def _new_tier2_acc() -> dict[str, Any]:
+    return {
+        "event_type_counter": Counter(),
+        "weapon_damage": defaultdict(float),
+        "weapon_kills": Counter(),
+        "winner_side_counter": Counter(),
+        "sum_round_secs": 0.0,
+        "round_count": 0,
+    }
+
+
+def _update_tier2(
+    acc: dict,
+    row: dict[str, str | None],
+    event_type: str,
+) -> None:
+    map_val = clean_cell(row.get("map"))
+    if not map_val:
+        return
+    entry = acc[map_val]
+    entry["event_type_counter"][event_type] += 1
+    if event_type == EVENT_TYPE_DAMAGE:
+        weapon = clean_cell(row.get("weapon"))
+        hp = _safe_float(row.get("hp_dmg"))
+        if weapon and hp is not None:
+            entry["weapon_damage"][weapon] += hp
+    elif event_type == EVENT_TYPE_KILL:
+        weapon = clean_cell(row.get("weapon"))
+        if weapon:
+            entry["weapon_kills"][weapon] += 1
+    elif event_type == EVENT_TYPE_ROUND_META:
+        winner_side = clean_cell(row.get("winner_side"))
+        if winner_side:
+            entry["winner_side_counter"][winner_side] += 1
+        start_s = _safe_float(row.get("start_seconds"))
+        end_s = _safe_float(row.get("end_seconds"))
+        if start_s is not None and end_s is not None and end_s > start_s:
+            entry["sum_round_secs"] += end_s - start_s
+            entry["round_count"] += 1
+
+
+def build_map_overview_text(map_val: str, entry: dict[str, Any]) -> str:
+    total = sum(entry["event_type_counter"].values())
+    damage_count = entry["event_type_counter"].get(EVENT_TYPE_DAMAGE, 0)
+    kill_count = entry["event_type_counter"].get(EVENT_TYPE_KILL, 0)
+    grenade_count = entry["event_type_counter"].get(EVENT_TYPE_GRENADE, 0)
+    round_meta_count = entry["event_type_counter"].get(EVENT_TYPE_ROUND_META, 0)
+
+    total_weapon_dmg = sum(entry["weapon_damage"].values())
+    top_damage_weapons = sorted(entry["weapon_damage"].items(), key=lambda x: -x[1])[:5]
+    top_dmg_str = (
+        ", ".join(f"{w} ({_pct(v, total_weapon_dmg)}%)" for w, v in top_damage_weapons)
+        if top_damage_weapons
+        else "N/A"
+    )
+
+    total_kills = sum(entry["weapon_kills"].values())
+    top_kill_weapons = entry["weapon_kills"].most_common(5)
+    top_kill_str = (
+        ", ".join(f"{w} ({_pct(c, total_kills)}%)" for w, c in top_kill_weapons)
+        if top_kill_weapons
+        else "N/A"
+    )
+
+    side_totals = sum(entry["winner_side_counter"].values())
+    ct_wins = entry["winner_side_counter"].get("CT", 0)
+    t_wins = entry["winner_side_counter"].get("T", 0)
+    ct_rate = _pct(ct_wins, side_totals)
+    t_rate = _pct(t_wins, side_totals)
+
+    avg_round_dur = (
+        round(entry["sum_round_secs"] / entry["round_count"], 1)
+        if entry["round_count"]
+        else 0.0
+    )
+    return (
+        f"Visão Geral do Mapa: {map_val}. "
+        f"Total de eventos registrados: {total:,} "
+        f"(dano: {damage_count:,}, kills: {kill_count:,}, "
+        f"granadas: {grenade_count:,}, rounds: {round_meta_count:,}). "
+        f"Top 5 armas por dano total causado: {top_dmg_str}. "
+        f"Top 5 armas por número de kills: {top_kill_str}. "
+        f"Taxa de vitória: CT {ct_rate}%, T {t_rate}%. "
+        f"Duração média de round: {avg_round_dur}s. "
+        f"Total de rounds registrados: {round_meta_count:,}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tier 3 — Hotspot Zones: (map, grid_x_bucket, grid_y_bucket)
+# ---------------------------------------------------------------------------
+
+
+def _new_tier3_acc() -> dict[str, Any]:
+    return {
+        "damage_count": 0,
+        "kill_count": 0,
+        "weapon_counter": Counter(),
+        "att_side_counter": Counter(),
+        "grenade_counter": Counter(),
+    }
+
+
+def _update_tier3(
+    acc: dict,
+    row: dict[str, str | None],
+    event_type: str,
+) -> None:
+    map_val = clean_cell(row.get("map"))
+    if not map_val:
+        return
+    x = _safe_float(row.get("att_pos_x"))
+    y = _safe_float(row.get("att_pos_y"))
+    if x is None or y is None:
+        return
+    key = (map_val, _grid_bucket(x), _grid_bucket(y))
+    entry = acc[key]
+    weapon = clean_cell(row.get("weapon"))
+    att_side = clean_cell(row.get("att_side"))
+    if event_type == EVENT_TYPE_DAMAGE:
+        entry["damage_count"] += 1
+        if weapon:
+            entry["weapon_counter"][weapon] += 1
+        if att_side:
+            entry["att_side_counter"][att_side] += 1
+    elif event_type == EVENT_TYPE_KILL:
+        entry["kill_count"] += 1
+        if weapon:
+            entry["weapon_counter"][weapon] += 1
+        if att_side:
+            entry["att_side_counter"][att_side] += 1
+    elif event_type == EVENT_TYPE_GRENADE:
+        entry["damage_count"] += 1
+        nade = clean_cell(row.get("nade"))
+        if nade:
+            entry["grenade_counter"][nade] += 1
+
+
+def build_hotspot_zone_text(
+    map_val: str,
+    gx: int,
+    gy: int,
+    entry: dict[str, Any],
+) -> str:
+    total = entry["damage_count"] + entry["kill_count"]
+    total_weapons = sum(entry["weapon_counter"].values())
+    top_weapons = _top_n(entry["weapon_counter"], 3)
+    weapon_str = (
+        ", ".join(f"{w} ({_pct(c, total_weapons)}%)" for w, c in top_weapons)
+        if top_weapons
+        else "N/A"
+    )
+    side_totals = sum(entry["att_side_counter"].values())
+    side_str = (
+        ", ".join(f"{s} {_pct(c, side_totals)}%" for s, c in entry["att_side_counter"].most_common())
+        if side_totals
+        else "N/A"
+    )
+    grenade_str = (
+        ", ".join(f"{g}: {c}" for g, c in entry["grenade_counter"].most_common(3))
+        if entry["grenade_counter"]
+        else "sem granadas"
+    )
+    gx_end = gx + HOTSPOT_GRID_SIZE
+    gy_end = gy + HOTSPOT_GRID_SIZE
+    return (
+        f"Zona de Combate: {map_val}, setor x:[{gx},{gx_end}] y:[{gy},{gy_end}]. "
+        f"Eventos de dano: {entry['damage_count']:,}. "
+        f"Eventos de kill: {entry['kill_count']:,}. "
+        f"Total de ações registradas: {total:,}. "
+        f"Armas mais usadas nesta zona: {weapon_str}. "
+        f"Distribuição por lado atacante: {side_str}. "
+        f"Granadas usadas: {grenade_str}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tier 4 — Round-Type Profiles: (map, round_type)  [from round_meta rows]
+# ---------------------------------------------------------------------------
+
+
+def _new_tier4_acc() -> dict[str, Any]:
+    return {
+        "count": 0,
+        "winner_side_counter": Counter(),
+        "sum_ct_eq": 0.0,
+        "sum_t_eq": 0.0,
+        "eq_count": 0,
+    }
+
+
+def _update_tier4(
+    acc: dict,
+    row: dict[str, str | None],
+) -> None:
+    map_val = clean_cell(row.get("map"))
+    round_type = clean_cell(row.get("round_type"))
+    if not map_val or not round_type:
+        return
+    key = (map_val, round_type)
+    entry = acc[key]
+    entry["count"] += 1
+    winner_side = clean_cell(row.get("winner_side"))
+    if winner_side:
+        entry["winner_side_counter"][winner_side] += 1
+    ct_eq = _safe_float(row.get("ct_eq_val"))
+    t_eq = _safe_float(row.get("t_eq_val"))
+    if ct_eq is not None and t_eq is not None:
+        entry["sum_ct_eq"] += ct_eq
+        entry["sum_t_eq"] += t_eq
+        entry["eq_count"] += 1
+
+
+def build_round_type_text(map_val: str, round_type: str, entry: dict[str, Any]) -> str:
+    count = entry["count"]
+    side_totals = sum(entry["winner_side_counter"].values())
+    ct_wins = entry["winner_side_counter"].get("CT", 0)
+    t_wins = entry["winner_side_counter"].get("T", 0)
+    ct_rate = _pct(ct_wins, side_totals)
+    t_rate = _pct(t_wins, side_totals)
+    avg_ct_eq = round(entry["sum_ct_eq"] / entry["eq_count"]) if entry["eq_count"] else 0
+    avg_t_eq = round(entry["sum_t_eq"] / entry["eq_count"]) if entry["eq_count"] else 0
+    return (
+        f"Perfil de Round: tipo '{round_type}' em {map_val}. "
+        f"Total de rounds deste tipo: {count:,}. "
+        f"Taxa de vitória: CT {ct_rate}%, T {t_rate}%. "
+        f"Equipamento médio: CT R${avg_ct_eq:,}, T R${avg_t_eq:,}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tier 5 — Weapon Global Profiles: (weapon) across all maps
+# ---------------------------------------------------------------------------
+
+
+def _new_tier5_acc() -> dict[str, Any]:
+    return {
+        "count": 0,
+        "sum_hp": 0.0,
+        "sum_arm": 0.0,
+        "max_hp": 0,
+        "headshot_count": 0,
+        "map_counter": Counter(),
+    }
+
+
+def _update_tier5(
+    acc: dict,
+    row: dict[str, str | None],
+) -> None:
+    weapon = clean_cell(row.get("weapon"))
+    if not weapon:
+        return
+    entry = acc[weapon]
+    entry["count"] += 1
+    hp = _safe_float(row.get("hp_dmg"))
+    arm = _safe_float(row.get("arm_dmg"))
+    if hp is not None:
+        entry["sum_hp"] += hp
+        if hp > entry["max_hp"]:
+            entry["max_hp"] = int(hp)
+    if arm is not None:
+        entry["sum_arm"] += arm
+    hitbox = clean_cell(row.get("hitbox"))
+    if hitbox and hitbox.lower() == "head":
+        entry["headshot_count"] += 1
+    map_val = clean_cell(row.get("map"))
+    if map_val:
+        entry["map_counter"][map_val] += 1
+
+
+def build_weapon_global_text(weapon: str, entry: dict[str, Any]) -> str:
+    count = entry["count"]
+    avg_hp = round(entry["sum_hp"] / count, 1) if count else 0.0
+    avg_arm = round(entry["sum_arm"] / count, 1) if count else 0.0
+    max_hp = entry["max_hp"]
+    headshot_rate = _pct(entry["headshot_count"], count)
+    top_maps = _top_n(entry["map_counter"], 3)
+    maps_str = ", ".join(f"{m} ({c:,})" for m, c in top_maps) if top_maps else "N/A"
+    return (
+        f"Perfil Global de Arma: {weapon} (todos os mapas, eventos de dano). "
+        f"Total de acertos registrados: {count:,}. "
+        f"Dano HP médio por acerto: {avg_hp} | Máximo: {max_hp}. "
+        f"Dano de armadura médio: {avg_arm}. "
+        f"Taxa de headshot: {headshot_rate}%. "
+        f"Mapas com mais eventos: {maps_str}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Document generation from all accumulators
+# ---------------------------------------------------------------------------
+
+
+def _build_doc(
+    document_run_id: str,
+    doc_index: int,
+    text: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    doc_id = build_doc_id(document_run_id, doc_index)
+    return {"doc_id": doc_id, "text": text, "metadata": {"doc_id": doc_id, **metadata}}
+
+
+def _generate_all_documents(
+    tier1_acc: dict,
+    tier2_acc: dict,
+    tier3_acc: dict,
+    tier4_acc: dict,
+    tier5_acc: dict,
+    document_run_id: str,
+    settings: DocumentSettings,
+) -> list[dict[str, Any]]:
+    docs: list[dict[str, Any]] = []
+    doc_index = 0
+
+    base_meta = {
+        "document_run_id": document_run_id,
+        "dataset_prefix": settings.document_dataset_prefix,
+        "source_run_id": settings.gold_source_run_id,
+    }
+
+    # Compute per-map totals for Tier 1 percentage calculation
+    map_damage_totals: Counter = Counter()
+    map_kill_totals: Counter = Counter()
+    for (map_val, _weapon, event_type), entry in tier1_acc.items():
+        if event_type == EVENT_TYPE_DAMAGE:
+            map_damage_totals[map_val] += entry["count"]
+        elif event_type == EVENT_TYPE_KILL:
+            map_kill_totals[map_val] += entry["count"]
+
+    # Tier 1
+    for (map_val, weapon, event_type), entry in sorted(tier1_acc.items()):
+        doc_index += 1
+        total_on_map = (
+            map_damage_totals[map_val]
+            if event_type == EVENT_TYPE_DAMAGE
+            else map_kill_totals[map_val]
+        )
+        text = build_weapon_map_profile_text(map_val, weapon, event_type, entry, total_on_map)
+        docs.append(
+            _build_doc(
+                document_run_id,
+                doc_index,
+                text,
+                {
+                    **base_meta,
+                    "document_tier": "weapon_map_profile",
+                    "map": map_val,
+                    "weapon": weapon,
+                    "event_type": event_type,
+                    "count": entry["count"],
+                },
+            )
+        )
+
+    # Tier 2
+    for map_val, entry in sorted(tier2_acc.items()):
+        doc_index += 1
+        text = build_map_overview_text(map_val, entry)
+        docs.append(
+            _build_doc(
+                document_run_id,
+                doc_index,
+                text,
+                {
+                    **base_meta,
+                    "document_tier": "map_overview",
+                    "map": map_val,
+                    "event_type": "overview",
+                },
+            )
+        )
+
+    # Tier 3
+    for (map_val, gx, gy), entry in sorted(tier3_acc.items()):
+        doc_index += 1
+        text = build_hotspot_zone_text(map_val, gx, gy, entry)
+        docs.append(
+            _build_doc(
+                document_run_id,
+                doc_index,
+                text,
+                {
+                    **base_meta,
+                    "document_tier": "hotspot_zone",
+                    "map": map_val,
+                    "grid_x": gx,
+                    "grid_y": gy,
+                    "event_type": "spatial",
+                },
+            )
+        )
+
+    # Tier 4
+    for (map_val, round_type), entry in sorted(tier4_acc.items()):
+        doc_index += 1
+        text = build_round_type_text(map_val, round_type, entry)
+        docs.append(
+            _build_doc(
+                document_run_id,
+                doc_index,
+                text,
+                {
+                    **base_meta,
+                    "document_tier": "round_type_profile",
+                    "map": map_val,
+                    "round_type": round_type,
+                    "event_type": EVENT_TYPE_ROUND_META,
+                    "count": entry["count"],
+                },
+            )
+        )
+
+    # Tier 5
+    for weapon, entry in sorted(tier5_acc.items()):
+        doc_index += 1
+        text = build_weapon_global_text(weapon, entry)
+        docs.append(
+            _build_doc(
+                document_run_id,
+                doc_index,
+                text,
+                {
+                    **base_meta,
+                    "document_tier": "weapon_global_profile",
+                    "weapon": weapon,
+                    "event_type": EVENT_TYPE_DAMAGE,
+                    "count": entry["count"],
+                },
+            )
+        )
+
+    return docs
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 
 def run_document_build(
@@ -296,110 +671,103 @@ def run_document_build(
         label="Gold object",
     )
 
-    uploaded_objects: list[str] = []
-    event_type_counts: Counter[str] = Counter()
-    part_records: list[DocumentPart] = []
+    # Accumulators (keyed dicts, stay small regardless of input size)
+    tier1_acc: dict = defaultdict(_new_tier1_acc)
+    tier2_acc: dict = defaultdict(_new_tier2_acc)
+    tier3_acc: dict = defaultdict(_new_tier3_acc)
+    tier4_acc: dict = defaultdict(_new_tier4_acc)
+    tier5_acc: dict = defaultdict(_new_tier5_acc)
+
     rows_read = 0
-    rows_output = 0
+    event_type_counts: Counter = Counter()
+
+    try:
+        reader = csv.DictReader(stream_text_lines(response))
+        fieldnames = set(reader.fieldnames or [])
+        missing_columns = sorted(REQUIRED_GOLD_COLUMNS - fieldnames)
+        if missing_columns:
+            joined_missing = ", ".join(missing_columns)
+            raise ValueError(f"Gold events.csv is missing required columns: {joined_missing}")
+
+        for row in reader:
+            if (
+                settings.document_max_rows is not None
+                and rows_read >= settings.document_max_rows
+            ):
+                break
+            rows_read += 1
+            event_type = clean_cell(row.get("event_type")) or "event"
+            event_type_counts[event_type] += 1
+
+            _update_tier2(tier2_acc, row, event_type)
+
+            if event_type in (EVENT_TYPE_DAMAGE, EVENT_TYPE_KILL):
+                _update_tier1(tier1_acc, row, event_type)
+                _update_tier5(tier5_acc, row)
+                _update_tier3(tier3_acc, row, event_type)
+            elif event_type == EVENT_TYPE_GRENADE:
+                _update_tier3(tier3_acc, row, event_type)
+            elif event_type == EVENT_TYPE_ROUND_META:
+                _update_tier4(tier4_acc, row)
+    finally:
+        response.close()
+        response.release_conn()
+
+    all_docs = _generate_all_documents(
+        tier1_acc, tier2_acc, tier3_acc, tier4_acc, tier5_acc,
+        settings.document_run_id, settings,
+    )
+    rows_output = len(all_docs)
+
+    if rows_output <= 0:
+        raise ValueError("No documents were generated from Gold events.csv.")
+
+    LOGGER.info(
+        "Aggregated %d Gold rows into %d documents across 5 tiers",
+        rows_read,
+        rows_output,
+    )
+
+    uploaded_objects: list[str] = []
+    part_records: list[DocumentPart] = []
 
     with tempfile.TemporaryDirectory(prefix="document-build-") as temp_dir:
         temp_path = Path(temp_dir)
-        current_part_number = 0
-        current_part_rows = 0
-        current_part_first_doc_id = ""
-        current_part_last_doc_id = ""
-        current_part_file = None
-        current_part_path: Path | None = None
+        part_number = 0
+        part_start = 0
 
-        def flush_part() -> None:
-            nonlocal current_part_rows
-            nonlocal current_part_file
-            nonlocal current_part_path
-            nonlocal current_part_first_doc_id
-            nonlocal current_part_last_doc_id
-            if current_part_file is None or current_part_path is None or current_part_rows <= 0:
-                return
+        while part_start < len(all_docs):
+            part_number += 1
+            part_docs = all_docs[part_start: part_start + settings.document_part_size_rows]
+            part_start += settings.document_part_size_rows
 
-            current_part_file.close()
+            part_path = temp_path / f"part-{part_number:05d}.jsonl"
+            with part_path.open("w", encoding="utf-8", newline="") as f:
+                for doc in part_docs:
+                    f.write(json.dumps(doc, ensure_ascii=True) + "\n")
+
             part_key = build_document_part_key(
                 settings.document_dataset_prefix,
                 settings.document_run_id,
-                current_part_number,
+                part_number,
             )
             client.fput_object(
                 bucket_name=settings.document_bucket,
                 object_name=part_key,
-                file_path=str(current_part_path),
+                file_path=str(part_path),
                 content_type="application/x-ndjson",
             )
             uploaded_objects.append(part_key)
             part_records.append(
                 DocumentPart(
                     object_key=part_key,
-                    rows=current_part_rows,
-                    first_doc_id=current_part_first_doc_id,
-                    last_doc_id=current_part_last_doc_id,
+                    rows=len(part_docs),
+                    first_doc_id=part_docs[0]["doc_id"],
+                    last_doc_id=part_docs[-1]["doc_id"],
                 )
             )
-            current_part_file = None
-            current_part_path = None
-            current_part_rows = 0
-            current_part_first_doc_id = ""
-            current_part_last_doc_id = ""
 
-        try:
-            reader = csv.DictReader(stream_text_lines(response))
-            fieldnames = set(reader.fieldnames or [])
-            missing_columns = sorted(REQUIRED_GOLD_COLUMNS - fieldnames)
-            if missing_columns:
-                joined_missing = ", ".join(missing_columns)
-                raise ValueError(f"Gold events.csv is missing required columns: {joined_missing}")
-
-            for source_line_number, row in enumerate(reader, start=2):
-                if (
-                    settings.document_max_rows is not None
-                    and rows_output >= settings.document_max_rows
-                ):
-                    break
-                rows_read += 1
-                if current_part_file is None:
-                    current_part_number += 1
-                    current_part_path = temp_path / f"part-{current_part_number:05d}.jsonl"
-                    current_part_file = current_part_path.open("w", encoding="utf-8", newline="")
-
-                doc_id = build_doc_id(settings.document_run_id, rows_read)
-                document = {
-                    "doc_id": doc_id,
-                    "text": build_document_text(row),
-                    "metadata": build_document_metadata(
-                        row,
-                        settings,
-                        doc_id=doc_id,
-                        source_line_number=source_line_number,
-                    ),
-                }
-                current_part_file.write(json.dumps(document, ensure_ascii=True) + "\n")
-
-                current_part_rows += 1
-                rows_output += 1
-                if not current_part_first_doc_id:
-                    current_part_first_doc_id = doc_id
-                current_part_last_doc_id = doc_id
-
-                event_type = str(document["metadata"]["event_type"] or "event")
-                event_type_counts[event_type] += 1
-
-                if current_part_rows >= settings.document_part_size_rows:
-                    flush_part()
-        finally:
-            response.close()
-            response.release_conn()
-
-        flush_part()
-
-        if rows_output <= 0:
-            raise ValueError("No documents were generated from Gold events.csv.")
-
+        tier_counts = Counter(doc["metadata"]["document_tier"] for doc in all_docs)
         manifest = {
             "generated_at": datetime.now(UTC).isoformat(),
             "source_bucket": settings.gold_bucket,
@@ -413,6 +781,7 @@ def run_document_build(
             "max_rows": settings.document_max_rows,
             "total_documents": rows_output,
             "total_parts": len(part_records),
+            "aggregation_strategy": "multi_tier",
             "parts": [asdict(part) for part in part_records],
         }
         manifest_file = temp_path / "manifest.json"
@@ -430,13 +799,14 @@ def run_document_build(
         uploaded_objects.append(manifest_key)
 
         quality_summary = {
-            "files_processed": len(part_records),
             "rows_read": rows_read,
             "rows_output": rows_output,
             "documents_generated": rows_output,
+            "aggregation_strategy": "multi_tier",
+            "tier_document_counts": dict(sorted(tier_counts.items())),
+            "event_type_counts": dict(sorted(event_type_counts.items())),
             "part_size_rows": settings.document_part_size_rows,
             "max_rows": settings.document_max_rows,
-            "event_type_counts": dict(sorted(event_type_counts.items())),
         }
         quality_report = {
             "generated_at": datetime.now(UTC).isoformat(),

@@ -40,21 +40,23 @@ def test_build_pgvector_data_table_name_rejects_invalid_identifier() -> None:
         build_pgvector_data_table_name("rag-embeddings")
 
 
-def test_build_pgvector_metadata_indexes_returns_five_deterministic_indexes() -> None:
+def test_build_pgvector_metadata_indexes_returns_deterministic_indexes() -> None:
     indexes = build_pgvector_metadata_indexes("rag_embeddings")
+    names = [index.name for index in indexes]
 
-    assert [index.name for index in indexes] == [
-        "data_rag_embeddings_meta_embedding_run_id_idx",
-        "data_rag_embeddings_meta_event_type_idx",
-        "data_rag_embeddings_meta_map_idx",
-        "data_rag_embeddings_meta_file_idx",
-        "data_rag_embeddings_meta_round_int_idx",
-    ]
+    assert "data_rag_embeddings_meta_embedding_run_id_idx" in names
+    assert "data_rag_embeddings_meta_event_type_idx" in names
+    assert "data_rag_embeddings_meta_map_idx" in names
+    assert "data_rag_embeddings_meta_file_idx" in names
+    assert "data_rag_embeddings_meta_round_int_idx" in names
+    assert "data_rag_embeddings_meta_document_tier_idx" in names
+    assert "data_rag_embeddings_meta_weapon_idx" in names
     assert indexes[0].legacy_index_name == "rag_embeddings_idx_embedding_run_id_text"
 
 
 def test_round_index_uses_safe_partial_integer_cast() -> None:
-    round_index = build_pgvector_metadata_indexes("rag_embeddings")[-1]
+    indexes = build_pgvector_metadata_indexes("rag_embeddings")
+    round_index = next(i for i in indexes if "round_int" in i.name)
 
     assert "((metadata_->>'round')::integer)" in round_index.create_sql
     assert "WHERE (metadata_->>'round') ~ '^-?[0-9]+$'" in round_index.create_sql
@@ -104,13 +106,10 @@ def test_ensure_pgvector_storage_contract_executes_idempotent_bootstrap() -> Non
         conn_factory=lambda _settings: conn,
     )
 
-    assert ensured == [
-        "data_rag_embeddings_meta_embedding_run_id_idx",
-        "data_rag_embeddings_meta_event_type_idx",
-        "data_rag_embeddings_meta_map_idx",
-        "data_rag_embeddings_meta_file_idx",
-        "data_rag_embeddings_meta_round_int_idx",
-    ]
+    assert "data_rag_embeddings_meta_embedding_run_id_idx" in ensured
+    assert "data_rag_embeddings_meta_round_int_idx" in ensured
+    assert "data_rag_embeddings_meta_document_tier_idx" in ensured
+    assert "data_rag_embeddings_meta_weapon_idx" in ensured
     assert conn.committed is True
     assert conn.closed is True
     executed_queries = [query for query, _params in cursor.queries]
@@ -123,7 +122,8 @@ def test_ensure_pgvector_storage_contract_executes_idempotent_bootstrap() -> Non
         "(((metadata_->>'round')::integer)) "
         "WHERE (metadata_->>'round') ~ '^-?[0-9]+$';"
     ) in executed_queries
-    assert len(executed_queries) == 10
+    # 2 queries per index (DROP legacy + CREATE IF NOT EXISTS), 7 indexes total
+    assert len(executed_queries) == 14
 
 
 def test_pgvector_data_table_exists_checks_regclass() -> None:

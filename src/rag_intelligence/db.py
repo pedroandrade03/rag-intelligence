@@ -18,6 +18,8 @@ PGVECTOR_METADATA_INDEXED_KEYS: set[tuple[str, PGType]] = {
     ("map", "text"),
     ("file", "text"),
     ("round", "integer"),
+    ("document_tier", "text"),
+    ("weapon", "text"),
 }
 
 
@@ -96,6 +98,24 @@ def build_pgvector_metadata_indexes(
                 "WHERE (metadata_->>'round') ~ '^-?[0-9]+$';"
             ),
             legacy_index_name=f"{legacy_prefix}_round_integer",
+        ),
+        PGVectorMetadataIndex(
+            name=f"{data_table_name}_meta_document_tier_idx",
+            create_sql=(
+                f"CREATE INDEX IF NOT EXISTS {data_table_name}_meta_document_tier_idx "
+                f"ON {PGVECTOR_SCHEMA_NAME}.{data_table_name} "
+                "USING btree ((metadata_->>'document_tier'));"
+            ),
+            legacy_index_name=f"{legacy_prefix}_document_tier_text",
+        ),
+        PGVectorMetadataIndex(
+            name=f"{data_table_name}_meta_weapon_idx",
+            create_sql=(
+                f"CREATE INDEX IF NOT EXISTS {data_table_name}_meta_weapon_idx "
+                f"ON {PGVECTOR_SCHEMA_NAME}.{data_table_name} "
+                "USING btree ((metadata_->>'weapon'));"
+            ),
+            legacy_index_name=f"{legacy_prefix}_weapon_text",
         ),
     ]
     return tuple(index_definitions)

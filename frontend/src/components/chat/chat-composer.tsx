@@ -95,6 +95,7 @@ export const ChatComposer = memo(function ChatComposer({
             <SelectTrigger
               className="h-7 gap-1 rounded-lg border-0 bg-transparent px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
               size="sm"
+              suppressHydrationWarning
             >
               <SelectValue />
             </SelectTrigger>

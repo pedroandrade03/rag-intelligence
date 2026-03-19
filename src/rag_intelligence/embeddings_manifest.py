@@ -19,7 +19,7 @@ from rag_intelligence.minio_utils import load_minio_object, stream_text_lines
 LOGGER = logging.getLogger(__name__)
 
 REQUIRED_DOCUMENT_FIELDS = {"doc_id", "text", "metadata"}
-REQUIRED_DOCUMENT_METADATA_FIELDS = {"event_type", "file", "round", "map", "source_file"}
+REQUIRED_DOCUMENT_METADATA_FIELDS = {"event_type", "document_tier"}
 SCALAR_METADATA_TYPES = (str, int, float, bool, type(None))
 PART_DOWNLOAD_MAX_ATTEMPTS = 3
 PART_DOWNLOAD_RETRY_DELAY_SECONDS = 2.0

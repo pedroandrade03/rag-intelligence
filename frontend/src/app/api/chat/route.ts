@@ -34,7 +34,13 @@ COMPORTAMENTO:
 - Baseie suas respostas APENAS nos dados retornados pela busca. Nunca invente estatísticas ou use conhecimento próprio.
 - Se a busca não retornar resultados, diga brevemente que não há dados disponíveis e sugira uma pergunta alternativa.
 - Seja direto, cite números específicos, e organize as informações de forma clara.
-- A ÚNICA exceção para não usar a ferramenta é se o usuário fizer uma saudação casual (ex: "oi", "olá") ou pergunta que não tem relação com CS:GO.`;
+- A ÚNICA exceção para não usar a ferramenta é se o usuário fizer uma saudação casual (ex: "oi", "olá") ou pergunta que não tem relação com CS:GO.
+
+ESTRATÉGIA DE BUSCA:
+- SEMPRE use map_name quando o usuário mencionar um mapa específico.
+- SEMPRE use event_type="damage" para perguntas de dano, event_type="kill" para perguntas de kill.
+- Mantenha top_k entre 5 e 10. Menos resultados = respostas melhores.
+- Para ranking/comparação: faça 2 buscas separadas se necessário (ex: busca 1 por AWP, busca 2 por AK47), em vez de buscar tudo de uma vez.`;
 
 const SYSTEM_PROMPT_NO_TOOLS = `Você é um analista profissional de partidas de CS:GO / Counter-Strike.
 
@@ -58,7 +64,9 @@ const searchMatchDataTool = tool({
       .number()
       .optional()
       .default(10)
-      .describe("Number of results to retrieve (default: 10)"),
+      .describe(
+        "Number of results to retrieve (default: 8, max 10). Always use map_name and event_type filters when available — filtered results are more precise and easier to analyze."
+      ),
     event_type: z
       .string()
       .optional()
