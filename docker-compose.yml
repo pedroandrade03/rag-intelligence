@@ -112,6 +112,53 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
 
+  # --- MLflow (docker compose --profile mlflow up -d) ---
+
+  mlflow-db-init:
+    image: postgres:16-alpine
+    profiles:
+      - mlflow
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      PGHOST: timescaledb
+      PGPORT: "5432"
+      PGUSER: ${PG_USER:-raguser}
+      PGPASSWORD: ${PG_PASSWORD:-ragpassword}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        until pg_isready -h timescaledb -p 5432 -U "$${PGUSER}"; do sleep 1; done
+        if ! psql -h timescaledb -U "$${PGUSER}" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'mlflow'" | grep -q 1; then
+          psql -h timescaledb -U "$${PGUSER}" -d postgres -c "CREATE DATABASE mlflow OWNER \"$${PGUSER}\";"
+        fi
+    restart: "no"
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.22.4
+    profiles:
+      - mlflow
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mlflow-db-init:
+        condition: service_completed_successfully
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_PG_USER: ${PG_USER:-raguser}
+      MLFLOW_PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        exec mlflow server --host 0.0.0.0 --port 5000 \
+          --backend-store-uri "postgresql://$${MLFLOW_PG_USER}:$${MLFLOW_PG_PASSWORD}@timescaledb:5432/mlflow" \
+          --default-artifact-root /mlflow/artifacts
+    volumes:
+      - mlflow-artifacts:/mlflow/artifacts
+
   bronze-importer:
     build:
       context: .
@@ -303,3 +350,4 @@ volumes:
   tsdb-data:
   ollama-data:
   grafana-data:
+  mlflow-artifacts:
