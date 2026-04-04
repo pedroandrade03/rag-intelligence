@@ -666,9 +666,15 @@ O `bronze-importer` fica em um profile manual, então `docker compose up` não e
 
 ### MLflow (experimentos)
 
-O tracking server usa o **mesmo TimescaleDB** do projeto: é criado o banco `mlflow` (metadados) e um volume Docker para artefatos. A UI usa a porta **5000** (o Grafana do profile `observability` usa a **3000**).
+O tracking server usa o **mesmo TimescaleDB** do projeto: é criado o banco `mlflow` (metadados) e um volume Docker para artefatos. A UI usa a porta **5000** (o Grafana do profile `observability` usa a **3000**). A imagem do serviço é construída a partir de [`Dockerfile.mlflow`](Dockerfile.mlflow) (imagem oficial + `psycopg2-binary`, necessário para o backend PostgreSQL).
 
-Subir apenas com a stack base já em execução:
+Subir apenas **TimescaleDB + MLflow** (útil para testar sem MinIO/Ollama/API):
+
+```bash
+docker compose --profile mlflow up -d mlflow-db-init mlflow
+```
+
+Com a stack base já em execução (ou tudo de uma vez, incluindo `minio`, `ollama`, `rag-api`):
 
 ```bash
 docker compose --profile mlflow up -d

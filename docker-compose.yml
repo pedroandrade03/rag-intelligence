@@ -137,7 +137,10 @@ services:
     restart: "no"
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.22.4
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    image: rag-intelligence-mlflow:local
     profiles:
       - mlflow
     depends_on:
