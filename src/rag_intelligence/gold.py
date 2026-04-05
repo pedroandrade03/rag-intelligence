@@ -111,11 +111,13 @@ class GoldFileQualityMetrics:
 @dataclass(frozen=True)
 class GoldTransformResult:
     uploaded_objects: list[str]
+    artifact_prefix: str
     events_key: str
     quality_report_key: str
     files_processed: int
     rows_read: int
     rows_output: int
+    quality_summary: dict[str, object]
 
 
 def build_silver_cleaned_prefix(dataset_prefix: str, run_id: str) -> str:
@@ -134,6 +136,12 @@ def build_gold_quality_report_key(dataset_prefix: str, run_id: str) -> str:
     normalized_prefix = dataset_prefix.strip("/")
     normalized_run_id = run_id.strip("/")
     return f"{normalized_prefix}/{normalized_run_id}/quality_report.json"
+
+
+def build_gold_artifact_prefix(dataset_prefix: str, run_id: str) -> str:
+    normalized_prefix = dataset_prefix.strip("/")
+    normalized_run_id = run_id.strip("/")
+    return f"{normalized_prefix}/{normalized_run_id}/curated/"
 
 
 def normalize_finite_numeric(value: str) -> str:
@@ -340,6 +348,8 @@ def run_gold_transform(
     schema_incompatible_total = 0
     uploaded_objects: list[str] = []
 
+    artifact_prefix = build_gold_artifact_prefix(settings.gold_dataset_prefix, settings.gold_run_id)
+
     with tempfile.TemporaryDirectory(prefix="gold-transform-") as temp_dir:
         temp_path = Path(temp_dir)
         local_sources: list[tuple[str, str, Path]] = []
@@ -444,6 +454,16 @@ def run_gold_transform(
         )
         uploaded_objects.append(events_key)
 
+        quality_summary = {
+            "files_processed": len(file_reports),
+            "rows_read": total_rows_read,
+            "rows_output": total_rows_output,
+            "rows_removed": total_rows_read - total_rows_output,
+            "removal_reasons": {
+                **removal_totals,
+                "schema_incompatible_file": schema_incompatible_total,
+            },
+        }
         quality_report = {
             "generated_at": datetime.now(UTC).isoformat(),
             "silver_bucket": settings.silver_bucket,
@@ -452,6 +472,7 @@ def run_gold_transform(
             "gold_run_id": settings.gold_run_id,
             "silver_dataset_prefix": settings.silver_dataset_prefix,
             "gold_dataset_prefix": settings.gold_dataset_prefix,
+            "artifact_prefix": artifact_prefix,
             "events_key": events_key,
             "files": [
                 {
@@ -460,16 +481,7 @@ def run_gold_transform(
                 }
                 for metrics in file_reports
             ],
-            "summary": {
-                "files_processed": len(file_reports),
-                "rows_read": total_rows_read,
-                "rows_output": total_rows_output,
-                "rows_removed": total_rows_read - total_rows_output,
-                "removal_reasons": {
-                    **removal_totals,
-                    "schema_incompatible_file": schema_incompatible_total,
-                },
-            },
+            "summary": quality_summary,
         }
 
         report_file = temp_path / "quality_report.json"
@@ -489,9 +501,11 @@ def run_gold_transform(
 
     return GoldTransformResult(
         uploaded_objects=uploaded_objects,
+        artifact_prefix=artifact_prefix,
         events_key=events_key,
         quality_report_key=quality_report_key,
         files_processed=len(file_reports),
         rows_read=total_rows_read,
         rows_output=total_rows_output,
+        quality_summary=quality_summary,
     )

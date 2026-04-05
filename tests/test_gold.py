@@ -157,6 +157,8 @@ def test_run_gold_transform_processes_mixed_event_types_and_writes_quality_repor
     assert result.files_processed == 5
     assert result.rows_read == 7
     assert result.rows_output == 6
+    assert result.artifact_prefix == "csgo-matchmaking-damage/20260306T023831Z/curated/"
+    assert result.quality_summary["rows_removed"] == 1
 
     events_key = "csgo-matchmaking-damage/20260306T023831Z/curated/events.csv"
     report_key = "csgo-matchmaking-damage/20260306T023831Z/quality_report.json"
@@ -191,6 +193,7 @@ def test_run_gold_transform_processes_mixed_event_types_and_writes_quality_repor
     }
 
     report = json.loads(gold_objects[report_key].decode("utf-8"))
+    assert report["artifact_prefix"] == result.artifact_prefix
     assert report["summary"]["files_processed"] == 5
     assert report["summary"]["rows_read"] == 7
     assert report["summary"]["rows_output"] == 6

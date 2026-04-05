@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
@@ -10,6 +10,13 @@ import psycopg2
 
 from rag_intelligence.config import ConfigError
 
+STAGE_ORDER = ("bronze", "silver", "gold", "documents", "embeddings")
+PARENT_STAGE_BY_STAGE = {
+    "silver": "bronze",
+    "gold": "silver",
+    "documents": "gold",
+    "embeddings": "documents",
+}
 _STAGE_CHECK = "'bronze', 'silver', 'gold', 'documents', 'embeddings'"
 
 _CREATE_TABLE = f"""\
@@ -76,6 +83,15 @@ ORDER BY created_at DESC
 LIMIT 1;
 """
 
+_SELECT_RUN = """\
+SELECT id, run_id, stage, status, dataset_prefix, bucket,
+       source_run_id, events_key, artifact_prefix, manifest_key, quality_report_key,
+       files_processed, rows_read, rows_output, quality_summary, created_at
+FROM dataset_runs
+WHERE stage = %s AND run_id = %s
+LIMIT 1;
+"""
+
 
 @dataclass(frozen=True)
 class MetadataSettings:
@@ -129,6 +145,74 @@ class RunRecord:
     quality_summary: dict[str, Any] | None = None
     created_at: datetime | None = None
     id: int | None = None
+
+
+@dataclass(frozen=True)
+class RunEvidence:
+    bucket: str
+    source_run_id: str | None
+    events_key: str | None
+    artifact_prefix: str | None
+    manifest_key: str | None
+    quality_report_key: str | None
+    files_processed: int
+    rows_read: int
+    rows_output: int
+    quality_summary: dict[str, Any] | None
+    created_at: str | None
+
+
+@dataclass(frozen=True)
+class LineageNode:
+    stage: str
+    run_id: str
+    dataset_prefix: str
+    status: str
+    evidence: RunEvidence
+
+
+@dataclass(frozen=True)
+class LineageIntegrityIssue:
+    code: str
+    message: str
+    stage: str
+    run_id: str
+
+
+@dataclass(frozen=True)
+class RunLineageReport:
+    requested_stage: str
+    requested_run_id: str
+    resolved_chain: list[LineageNode]
+    integrity_status: str
+    integrity_issues: list[LineageIntegrityIssue]
+    evidence: list[RunEvidence]
+
+    def to_dict(self) -> dict[str, Any]:
+        resolved_chain = [asdict(node) for node in self.resolved_chain]
+        summary = {
+            "stage_start": self.resolved_chain[-1].stage if self.resolved_chain else None,
+            "stage_end": self.resolved_chain[0].stage if self.resolved_chain else None,
+            "hops": max(len(self.resolved_chain) - 1, 0),
+            "chain_length": len(self.resolved_chain),
+            "chain_complete": _is_chain_complete(self.resolved_chain),
+            "artifacts_available": {
+                node.stage: _artifact_flags(node.evidence) for node in self.resolved_chain
+            },
+        }
+        return {
+            "requested_stage": self.requested_stage,
+            "requested_run_id": self.requested_run_id,
+            "integrity_status": self.integrity_status,
+            "integrity_issues": [asdict(issue) for issue in self.integrity_issues],
+            "summary": summary,
+            "resolved_chain": resolved_chain,
+            "evidence": [asdict(item) for item in self.evidence],
+        }
+
+
+class LineageAuditError(ValueError):
+    pass
 
 
 def _default_conn_factory(settings: MetadataSettings) -> Any:
@@ -234,6 +318,162 @@ def get_latest_run(
     quality_raw = row[14]
     quality_summary = json.loads(quality_raw) if isinstance(quality_raw, str) else quality_raw
 
+    return _build_run_record(row, quality_summary=quality_summary)
+
+
+def get_run(
+    settings: MetadataSettings,
+    *,
+    stage: str,
+    run_id: str,
+    conn_factory: Any = None,
+) -> RunRecord | None:
+    factory = conn_factory or _default_conn_factory
+    conn = factory(settings)
+    try:
+        cur = conn.cursor()
+        cur.execute(_SELECT_RUN, (stage, run_id))
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    quality_raw = row[14]
+    quality_summary = json.loads(quality_raw) if isinstance(quality_raw, str) else quality_raw
+    return _build_run_record(row, quality_summary=quality_summary)
+
+
+def get_run_lineage(
+    settings: MetadataSettings,
+    *,
+    stage: str,
+    run_id: str,
+    conn_factory: Any = None,
+) -> RunLineageReport:
+    if stage not in STAGE_ORDER:
+        raise LineageAuditError(f"Unsupported stage for lineage audit: {stage}")
+
+    issues: list[LineageIntegrityIssue] = []
+    resolved_chain: list[LineageNode] = []
+    evidence: list[RunEvidence] = []
+    visited: set[tuple[str, str]] = set()
+
+    current_stage = stage
+    current_run_id = run_id
+    expected_dataset_prefix: str | None = None
+
+    while True:
+        key = (current_stage, current_run_id)
+        if key in visited:
+            issues.append(
+                LineageIntegrityIssue(
+                    code="cycle_detected",
+                    message=(
+                        "Lineage traversal encountered the same stage/run twice, "
+                        "indicating a cycle."
+                    ),
+                    stage=current_stage,
+                    run_id=current_run_id,
+                )
+            )
+            break
+        visited.add(key)
+
+        record = get_run(
+            settings,
+            stage=current_stage,
+            run_id=current_run_id,
+            conn_factory=conn_factory,
+        )
+        if record is None:
+            issues.append(
+                LineageIntegrityIssue(
+                    code="run_not_found",
+                    message="No metadata record was found for the requested stage/run.",
+                    stage=current_stage,
+                    run_id=current_run_id,
+                )
+            )
+            break
+
+        if expected_dataset_prefix is None:
+            expected_dataset_prefix = record.dataset_prefix
+        elif record.dataset_prefix != expected_dataset_prefix:
+            issues.append(
+                LineageIntegrityIssue(
+                    code="dataset_prefix_mismatch",
+                    message=(
+                        "Resolved parent run uses a different dataset_prefix than the "
+                        "child lineage chain."
+                    ),
+                    stage=current_stage,
+                    run_id=current_run_id,
+                )
+            )
+
+        node = _build_lineage_node(record)
+        resolved_chain.append(node)
+        evidence.append(node.evidence)
+
+        parent_stage = PARENT_STAGE_BY_STAGE.get(current_stage)
+        if parent_stage is None:
+            if record.source_run_id:
+                issues.append(
+                    LineageIntegrityIssue(
+                        code="cycle_detected",
+                        message=(
+                            "Terminal lineage stage unexpectedly points to another run, "
+                            "indicating a cyclic or malformed chain."
+                        ),
+                        stage=current_stage,
+                        run_id=current_run_id,
+                    )
+                )
+            break
+
+        if not record.source_run_id:
+            issues.append(
+                LineageIntegrityIssue(
+                    code="missing_source_run_id",
+                    message="Lineage chain stopped because source_run_id is missing.",
+                    stage=current_stage,
+                    run_id=current_run_id,
+                )
+            )
+            break
+
+        current_stage = parent_stage
+        current_run_id = record.source_run_id
+
+    integrity_status = "ok" if not issues and _is_chain_complete(resolved_chain) else "broken"
+    if not resolved_chain:
+        raise LineageAuditError(
+            f"Unable to build lineage for stage={stage} run_id={run_id}: no metadata found"
+        )
+    if issues:
+        issue_summary = "; ".join(f"{issue.code}@{issue.stage}:{issue.run_id}" for issue in issues)
+        raise LineageAuditError(
+            f"Lineage integrity check failed for stage={stage} run_id={run_id}: {issue_summary}"
+        )
+
+    return RunLineageReport(
+        requested_stage=stage,
+        requested_run_id=run_id,
+        resolved_chain=resolved_chain,
+        integrity_status=integrity_status,
+        integrity_issues=issues,
+        evidence=evidence,
+    )
+
+
+def _build_run_record(
+    row: tuple[Any, ...],
+    *,
+    quality_summary: dict[str, Any] | None,
+) -> RunRecord:
     return RunRecord(
         id=row[0],
         run_id=row[1],
@@ -252,3 +492,44 @@ def get_latest_run(
         quality_summary=quality_summary,
         created_at=row[15],
     )
+
+
+def _build_lineage_node(record: RunRecord) -> LineageNode:
+    return LineageNode(
+        stage=record.stage,
+        run_id=record.run_id,
+        dataset_prefix=record.dataset_prefix,
+        status=record.status,
+        evidence=RunEvidence(
+            bucket=record.bucket,
+            source_run_id=record.source_run_id,
+            events_key=record.events_key,
+            artifact_prefix=record.artifact_prefix,
+            manifest_key=record.manifest_key,
+            quality_report_key=record.quality_report_key,
+            files_processed=record.files_processed,
+            rows_read=record.rows_read,
+            rows_output=record.rows_output,
+            quality_summary=record.quality_summary,
+            created_at=record.created_at.isoformat() if record.created_at else None,
+        ),
+    )
+
+
+def _artifact_flags(evidence: RunEvidence) -> dict[str, bool]:
+    return {
+        "has_events_key": bool(evidence.events_key),
+        "has_artifact_prefix": bool(evidence.artifact_prefix),
+        "has_manifest_key": bool(evidence.manifest_key),
+        "has_quality_report_key": bool(evidence.quality_report_key),
+        "has_quality_summary": bool(evidence.quality_summary),
+    }
+
+
+def _is_chain_complete(chain: list[LineageNode]) -> bool:
+    if not chain:
+        return False
+    start_index = STAGE_ORDER.index(chain[0].stage)
+    expected = tuple(reversed(STAGE_ORDER[: start_index + 1]))
+    actual = tuple(node.stage for node in chain)
+    return actual == expected and chain[-1].stage == "bronze"
