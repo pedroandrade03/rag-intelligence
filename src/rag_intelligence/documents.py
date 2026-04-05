@@ -94,7 +94,7 @@ def _safe_float(value: str | None) -> float | None:
 def _grid_bucket(coord: float | None) -> int | None:
     if coord is None:
         return None
-    return int(math.floor(coord / HOTSPOT_GRID_SIZE)) * HOTSPOT_GRID_SIZE
+    return math.floor(coord / HOTSPOT_GRID_SIZE) * HOTSPOT_GRID_SIZE
 
 
 def _top_n(counter: Counter, n: int = 5) -> list[tuple[str, int]]:
@@ -355,7 +355,9 @@ def build_hotspot_zone_text(
     )
     side_totals = sum(entry["att_side_counter"].values())
     side_str = (
-        ", ".join(f"{s} {_pct(c, side_totals)}%" for s, c in entry["att_side_counter"].most_common())
+        ", ".join(
+            f"{s} {_pct(c, side_totals)}%" for s, c in entry["att_side_counter"].most_common()
+        )
         if side_totals
         else "N/A"
     )
