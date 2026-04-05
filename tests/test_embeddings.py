@@ -81,10 +81,14 @@ def _document_payload(
     doc_id: str,
     *,
     event_type: str = "damage",
+    document_tier: str | None = None,
     file_name: str = "demo_1",
     round_value: int = 1,
     source_file: str = "damage.csv",
 ) -> bytes:
+    tier = document_tier or (
+        "round_type_profile" if event_type == "round_meta" else "weapon_map_profile"
+    )
     record = {
         "doc_id": doc_id,
         "text": f"Evento {event_type} em map=de_mirage file={file_name} round={round_value}.",
@@ -94,6 +98,7 @@ def _document_payload(
             "document_run_id": "20260308T180500Z",
             "dataset_prefix": "csgo-matchmaking-damage",
             "event_type": event_type,
+            "document_tier": tier,
             "file": file_name,
             "round": round_value,
             "map": "de_mirage",
@@ -219,6 +224,7 @@ def test_build_document_from_json_preserves_doc_id_and_augments_metadata() -> No
             "metadata": {
                 "doc_id": "20260308T180500Z:1",
                 "event_type": "damage",
+                "document_tier": "weapon_map_profile",
                 "file": "demo_1",
                 "round": 1,
                 "map": "de_mirage",
@@ -232,6 +238,7 @@ def test_build_document_from_json_preserves_doc_id_and_augments_metadata() -> No
     )
 
     assert document.doc_id == "20260308T180500Z:1"
+    assert document.metadata["document_tier"] == "weapon_map_profile"
     assert document.metadata["embedding_run_id"] == "20260308T181000Z"
     assert document.metadata["document_source_run_id"] == "20260308T180500Z"
     assert document.metadata["dataset_prefix"] == "csgo-matchmaking-damage"
