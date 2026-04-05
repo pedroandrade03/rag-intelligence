@@ -684,13 +684,37 @@ pip install -e .[dev]
 python -m rag_intelligence
 ```
 
+ou 
+
+```bash
+uv sync
+uv run python -m rag_intelligence
+```
+
 ## Validação
 
-Abra o console do MinIO em `http://localhost:9001` e confirme que o bucket `bronze` contém objetos em:
+O comando anterior rodará o arquivo [`src/rag_intelligence/cli.py`](src/rag_intelligence/cli.py), que é o ponto de entrada da PB01 (`bronze-import`). Ele:
 
-`csgo-matchmaking-damage/<run_id>/`
+- carrega variáveis de ambiente com `load_dotenv()`;
+- lê as configurações da ingestão (Kaggle + MinIO);
+- executa a importação do dataset para a camada Bronze;
+- registra logs de sucesso/erro e tenta registrar metadados da execução.
+
+E agora abra o console do MinIO em `http://localhost:9001` e confirme:
+
+Como resultado, ele gera um storage/bucket chamado `bronze` contendo o prefixo do dataset `csgo-matchmaking-damage` e, dentro dele, uma pasta de execução com o **run_id** ou com data e hora em UTC, caso o id seja nulo (por exemplo, `20260405T195917Z`).
+
+Estrutura esperada:
+
+`bronze/csgo-matchmaking-damage/<run_id>/`
 
 Os critérios mínimos de PB01 são atendidos quando o bucket Bronze contém o ZIP bruto e os arquivos extraídos `.csv`/`.png` da carga.
+
+Exemplo:
+
+- `bronze/csgo-matchmaking-damage/20260405T195917Z/extracted/` com arquivos `.csv` e `.png`
+- `bronze/csgo-matchmaking-damage/20260405T195917Z/raw/` com um único arquivo `.zip`
+
 
 # Implementação PB02
 
