@@ -166,14 +166,10 @@ def build_weapon_map_profile_text(
     headshot_rate = _pct(entry["headshot_count"], count)
     top_hitboxes = _top_n(entry["hitbox_counter"], 4)
     hitbox_str = (
-        ", ".join(f"{hb} ({_pct(c, count)}%)" for hb, c in top_hitboxes)
-        if top_hitboxes
-        else "N/A"
+        ", ".join(f"{hb} ({_pct(c, count)}%)" for hb, c in top_hitboxes) if top_hitboxes else "N/A"
     )
     side_dist = _top_n(entry["att_side_counter"], 2)
-    side_str = (
-        ", ".join(f"{s} {_pct(c, count)}%" for s, c in side_dist) if side_dist else "N/A"
-    )
+    side_str = ", ".join(f"{s} {_pct(c, count)}%" for s, c in side_dist) if side_dist else "N/A"
     pct_of_map = _pct(count, total_events_on_map)
     if event_type == EVENT_TYPE_DAMAGE:
         return (
@@ -272,9 +268,7 @@ def build_map_overview_text(map_val: str, entry: dict[str, Any]) -> str:
     t_rate = _pct(t_wins, side_totals)
 
     avg_round_dur = (
-        round(entry["sum_round_secs"] / entry["round_count"], 1)
-        if entry["round_count"]
-        else 0.0
+        round(entry["sum_round_secs"] / entry["round_count"], 1) if entry["round_count"] else 0.0
     )
     return (
         f"Visão Geral do Mapa: {map_val}. "
@@ -692,10 +686,7 @@ def run_document_build(
             raise ValueError(f"Gold events.csv is missing required columns: {joined_missing}")
 
         for row in reader:
-            if (
-                settings.document_max_rows is not None
-                and rows_read >= settings.document_max_rows
-            ):
+            if settings.document_max_rows is not None and rows_read >= settings.document_max_rows:
                 break
             rows_read += 1
             event_type = clean_cell(row.get("event_type")) or "event"
@@ -716,8 +707,13 @@ def run_document_build(
         response.release_conn()
 
     all_docs = _generate_all_documents(
-        tier1_acc, tier2_acc, tier3_acc, tier4_acc, tier5_acc,
-        settings.document_run_id, settings,
+        tier1_acc,
+        tier2_acc,
+        tier3_acc,
+        tier4_acc,
+        tier5_acc,
+        settings.document_run_id,
+        settings,
     )
     rows_output = len(all_docs)
 
@@ -740,7 +736,7 @@ def run_document_build(
 
         while part_start < len(all_docs):
             part_number += 1
-            part_docs = all_docs[part_start: part_start + settings.document_part_size_rows]
+            part_docs = all_docs[part_start : part_start + settings.document_part_size_rows]
             part_start += settings.document_part_size_rows
 
             part_path = temp_path / f"part-{part_number:05d}.jsonl"

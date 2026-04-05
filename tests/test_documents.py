@@ -84,7 +84,7 @@ def test_build_weapon_map_profile_text_damage() -> None:
     assert "ak47" in text
     assert "de_dust2" in text
     assert "27.0" in text  # avg_hp = 27000/1000
-    assert "111" in text   # max_hp
+    assert "111" in text  # max_hp
     assert "20.0%" in text  # headshot_rate = 200/1000
 
 
@@ -107,6 +107,7 @@ def test_build_weapon_map_profile_text_kill() -> None:
 
 def test_build_map_overview_text() -> None:
     from collections import defaultdict
+
     entry = {
         "event_type_counter": Counter(
             {"damage": 1000, "kill": 200, "grenade": 50, "round_meta": 30}
@@ -137,7 +138,7 @@ def test_build_hotspot_zone_text() -> None:
     assert "1000" in text
     assert "-500" in text
     assert "500" in text  # damage_count
-    assert "80" in text   # kill_count
+    assert "80" in text  # kill_count
 
 
 def test_build_round_type_text() -> None:
