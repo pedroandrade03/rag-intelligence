@@ -786,6 +786,25 @@ Verifique no MinIO:
 
 O pipeline aplica `event_type` por tipo de arquivo, fallback de arma (`wp` -> `nade`), enriquecimento de mapa por (`file`, `round`), mantém posição da vítima opcional e valida como numéricas finitas as posições que estiverem preenchidas.
 
+## Explanação do funcionamento
+
+A transformação Gold é organizada em duas camadas:
+
+**`gold.py`** — Módulo de lógica pura que contém toda a inteligência de transformação:
+- Define dataclasses (`GoldFileQualityMetrics`, `GoldTransformResult`) para tipagem e contrato dos artefatos
+- Implementa funções auxiliares: `infer_event_type()` para classificação de eventos, `has_minimum_projection_columns()` para validação de schema, `project_row()` para projeção e validação de linhas
+- Contém `run_gold_transform()` como função principal, que coordena a leitura dos CSVs da Silver, aplica validações em stream, enriquece dados via lookup de mapa, e persiste o `events.csv` + `quality_report.json` no MinIO
+- É independente de ponto de entrada — pode ser testado, importado ou invocado por diferentes orquestradores
+
+**`gold_cli.py`** — Script de entrada (CLI) que encapsula a execução com gestão do ecossistema:
+- Carrega variáveis de ambiente e configura logging
+- Instancia `GoldSettings` a partir do `.env`
+- Chama `run_gold_transform()` com tratamento de erros (`ConfigError` retorna código 2, exceções genéricas retornam 1)
+- Registra o run completado no banco de metadados PostgreSQL via `metadata.register_run()`, permitindo rastreabilidade da linhagem (opcional; falha sem bloquear)
+- Retorna código de saída apropriado (0 = sucesso)
+
+Esse padrão separa responsabilidades: a lógica de negócio fica portável em `gold.py`, enquanto `gold_cli.py` orquestra a execução em ambiente real (Docker, job, teste).
+
 # Epic 1 — Preparação de Dados de Partidas
 
 **Objetivo:** organizar e estruturar os dados de partidas de CS:GO.
