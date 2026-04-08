@@ -69,8 +69,23 @@ services:
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
       DEFAULT_LLM: ${DEFAULT_LLM:-ollama/qwen2.5}
       DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
+      DEFAULT_EMBEDDING_RUN_ID: ${DEFAULT_EMBEDDING_RUN_ID:-${EMBEDDING_RUN_ID:-}}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_ENDPOINT: http://otel-collector:4318
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3000"
+    depends_on:
+      - rag-api
+    environment:
+      RAG_API_URL: ${RAG_API_URL:-http://rag-api:8000}
+      EMBEDDING_RUN_ID: ${EMBEDDING_RUN_ID:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
 
   # --- Observability (docker compose --profile observability up -d) ---
 
