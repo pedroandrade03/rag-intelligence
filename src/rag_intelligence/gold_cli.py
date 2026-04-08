@@ -54,10 +54,12 @@ def main() -> int:
                 bucket=settings.gold_bucket,
                 source_run_id=settings.silver_source_run_id,
                 events_key=result.events_key,
+                artifact_prefix=result.artifact_prefix,
                 quality_report_key=result.quality_report_key,
                 files_processed=result.files_processed,
                 rows_read=result.rows_read,
                 rows_output=result.rows_output,
+                quality_summary=result.quality_summary,
             ),
         )
         logging.info("Registered gold run %s in metadata", settings.gold_run_id)

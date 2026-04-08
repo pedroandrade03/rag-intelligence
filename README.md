@@ -348,6 +348,46 @@ Verifique no PostgreSQL:
 
 Por padrao, o pipeline faz delete + reinsert por `embedding_run_id`. Quando `EMBEDDING_RESUME=true`, ele consulta o progresso ja persistido, valida se o run existente esta contiguo desde o document `1` e continua dali sem apagar. A execucao segue registrando metadata em `dataset_runs` no fim do job. A PB07 endurece esse mesmo caminho com contrato explicito da tabela vetorial e indices BTREE para filtros de metadata.
 
+## Auditoria de Runs
+
+O projeto agora oferece a CLI `run-audit` para reconstruir a rastreabilidade entre `bronze -> silver -> gold -> documents -> embeddings` usando apenas o catálogo `dataset_runs`, sem reprocessar artefatos no momento da consulta.
+
+Exemplos:
+
+```bash
+run-audit --stage embeddings --run-id 20260308T180500Z --format text
+run-audit --stage embeddings --run-id 20260308T180500Z --format json
+```
+
+A auditoria verifica:
+
+- se cada `source_run_id` resolve para o estágio pai esperado
+- se o `dataset_prefix` permanece consistente na cadeia
+- se existem lacunas ou ciclos de lineage
+
+Cada estágio retorna evidências operacionais consolidadas:
+
+- `bucket`
+- `source_run_id`
+- `events_key`
+- `artifact_prefix`
+- `manifest_key`
+- `quality_report_key`
+- `files_processed`, `rows_read`, `rows_output`
+- `quality_summary`
+
+Exemplo resumido de saída textual:
+
+```text
+Run audit for embeddings:20260308T180500Z
+Integrity: ok
+Chain length: 5
+
+1. embeddings run=20260308T180500Z
+   dataset_prefix=csgo-matchmaking-damage bucket=gold
+   source_run_id=20260308T180500Z
+```
+
 # Implementacao PB07
 
 ## Objetivo

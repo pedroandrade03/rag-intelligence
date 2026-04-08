@@ -40,6 +40,9 @@ def main() -> int:
 
         md_settings = MetadataSettings.from_env()
         ensure_schema(md_settings)
+        run_prefix = f"{settings.dataset_prefix.strip('/')}/{settings.run_id.strip('/')}/"
+        raw_count = sum(1 for object_key in uploaded_objects if "/raw/" in object_key)
+        extracted_count = sum(1 for object_key in uploaded_objects if "/extracted/" in object_key)
         register_run(
             md_settings,
             RunRecord(
@@ -47,7 +50,13 @@ def main() -> int:
                 stage="bronze",
                 dataset_prefix=settings.dataset_prefix,
                 bucket=settings.minio_bucket,
+                artifact_prefix=run_prefix,
                 files_processed=len(uploaded_objects),
+                quality_summary={
+                    "files_processed": len(uploaded_objects),
+                    "raw_objects": raw_count,
+                    "extracted_objects": extracted_count,
+                },
             ),
         )
         logging.info("Registered bronze run %s in metadata", settings.run_id)

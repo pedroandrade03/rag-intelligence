@@ -106,6 +106,13 @@ def test_run_silver_transform_processes_all_csvs_and_writes_quality_report() -> 
     assert result.files_processed == 2
     assert result.rows_read == 8
     assert result.rows_output == 2
+    assert result.artifact_prefix == "csgo-matchmaking-damage/20260306T023831Z/cleaned/"
+    assert result.quality_summary == {
+        "files_processed": 2,
+        "rows_read": 8,
+        "rows_output": 2,
+        "rows_removed": 6,
+    }
     assert result.quality_report_key in result.uploaded_objects
 
     silver_objects = fake_minio.objects["silver"]
@@ -127,6 +134,7 @@ def test_run_silver_transform_processes_all_csvs_and_writes_quality_report() -> 
     )
 
     report = json.loads(silver_objects[report_key].decode("utf-8"))
+    assert report["artifact_prefix"] == result.artifact_prefix
     assert report["summary"] == {
         "files_processed": 2,
         "rows_read": 8,

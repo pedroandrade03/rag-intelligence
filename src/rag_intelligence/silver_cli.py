@@ -49,10 +49,12 @@ def main() -> int:
                 dataset_prefix=settings.silver_dataset_prefix,
                 bucket=settings.silver_bucket,
                 source_run_id=settings.bronze_source_run_id,
+                artifact_prefix=result.artifact_prefix,
                 quality_report_key=result.quality_report_key,
                 files_processed=result.files_processed,
                 rows_read=result.rows_read,
                 rows_output=result.rows_output,
+                quality_summary=result.quality_summary,
             ),
         )
         logging.info("Registered silver run %s in metadata", settings.silver_run_id)

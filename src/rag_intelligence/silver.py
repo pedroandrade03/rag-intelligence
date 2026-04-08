@@ -39,10 +39,12 @@ class FileQualityMetrics:
 @dataclass(frozen=True)
 class SilverTransformResult:
     uploaded_objects: list[str]
+    artifact_prefix: str
     quality_report_key: str
     files_processed: int
     rows_read: int
     rows_output: int
+    quality_summary: dict[str, object]
 
 
 def build_bronze_extracted_prefix(dataset_prefix: str, run_id: str) -> str:
@@ -62,6 +64,12 @@ def build_quality_report_key(dataset_prefix: str, run_id: str) -> str:
     normalized_prefix = dataset_prefix.strip("/")
     normalized_run_id = run_id.strip("/")
     return f"{normalized_prefix}/{normalized_run_id}/quality_report.json"
+
+
+def build_silver_artifact_prefix(dataset_prefix: str, run_id: str) -> str:
+    normalized_prefix = dataset_prefix.strip("/")
+    normalized_run_id = run_id.strip("/")
+    return f"{normalized_prefix}/{normalized_run_id}/cleaned/"
 
 
 def normalize_column_name(column_name: str) -> str:
@@ -251,6 +259,11 @@ def run_silver_transform(
     total_rows_read = 0
     total_rows_output = 0
 
+    artifact_prefix = build_silver_artifact_prefix(
+        settings.silver_dataset_prefix,
+        settings.silver_run_id,
+    )
+
     with tempfile.TemporaryDirectory(prefix="silver-transform-") as temp_dir:
         temp_path = Path(temp_dir)
 
@@ -264,6 +277,12 @@ def run_silver_transform(
                 total_rows_output += file_report["rows_output"]  # type: ignore[operator]
                 quality_files.append(file_report)
 
+        quality_summary = {
+            "files_processed": len(quality_files),
+            "rows_read": total_rows_read,
+            "rows_output": total_rows_output,
+            "rows_removed": total_rows_read - total_rows_output,
+        }
         quality_report = {
             "generated_at": datetime.now(UTC).isoformat(),
             "bronze_bucket": settings.bronze_bucket,
@@ -272,13 +291,9 @@ def run_silver_transform(
             "silver_run_id": settings.silver_run_id,
             "bronze_dataset_prefix": settings.bronze_dataset_prefix,
             "silver_dataset_prefix": settings.silver_dataset_prefix,
+            "artifact_prefix": artifact_prefix,
             "files": quality_files,
-            "summary": {
-                "files_processed": len(quality_files),
-                "rows_read": total_rows_read,
-                "rows_output": total_rows_output,
-                "rows_removed": total_rows_read - total_rows_output,
-            },
+            "summary": quality_summary,
         }
 
         quality_report_file = temp_path / "quality_report.json"
@@ -298,8 +313,10 @@ def run_silver_transform(
     uploaded_objects.append(quality_report_key)
     return SilverTransformResult(
         uploaded_objects=uploaded_objects,
+        artifact_prefix=artifact_prefix,
         quality_report_key=quality_report_key,
         files_processed=len(quality_files),
         rows_read=total_rows_read,
         rows_output=total_rows_output,
+        quality_summary=quality_summary,
     )

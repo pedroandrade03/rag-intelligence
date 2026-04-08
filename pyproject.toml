@@ -50,6 +50,7 @@ gold-transform = "rag_intelligence.gold_cli:main"
 document-build = "rag_intelligence.document_cli:main"
 embedding-ingest = "rag_intelligence.embedding_cli:main"
 semantic-search = "rag_intelligence.search_cli:main"
+run-audit = "rag_intelligence.run_audit_cli:main"
 rag-api = "rag_intelligence.api.main:run"
 
 [tool.setuptools]
