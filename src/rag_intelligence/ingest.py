@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 import tempfile
 import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from minio import Minio
@@ -21,6 +23,23 @@ EXTRACTED_SUFFIXES = {".csv", ".png"}
 class UploadItem:
     source_path: Path
     object_key: str
+
+
+def infer_extracted_file_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix != ".csv":
+        return "assets"
+
+    name = path.name.lower()
+    if "meta" in name:
+        return "round_meta"
+    if "kill" in name:
+        return "kills"
+    if "dmg" in name or "damage" in name:
+        return "damage"
+    if "grenade" in name or "nade" in name:
+        return "grenades"
+    return "other"
 
 
 def build_object_key(prefix: str, run_id: str, relative_path: str, *, section: str) -> str:
@@ -94,19 +113,59 @@ def build_upload_manifest(
         )
     ]
 
+    manifest_payload: list[dict[str, object]] = []
+
     for asset_path in iter_dataset_assets(extracted_dir):
         relative_path = asset_path.relative_to(extracted_dir).as_posix()
+        file_type = infer_extracted_file_type(asset_path)
+        typed_relative_path = f"{file_type}/{relative_path}"
+        object_key = build_object_key(
+            settings.dataset_prefix,
+            settings.run_id,
+            typed_relative_path,
+            section="extracted",
+        )
         manifest.append(
             UploadItem(
                 source_path=asset_path,
-                object_key=build_object_key(
-                    settings.dataset_prefix,
-                    settings.run_id,
-                    relative_path,
-                    section="extracted",
-                ),
+                object_key=object_key,
             )
         )
+        manifest_payload.append(
+            {
+                "relative_path": relative_path,
+                "typed_relative_path": typed_relative_path,
+                "file_type": file_type,
+                "object_key": object_key,
+                "size_bytes": asset_path.stat().st_size,
+            }
+        )
+
+    generated_at = datetime.now(UTC).isoformat()
+    manifest_file = extracted_dir / "_manifest.json"
+    manifest_file.write_text(
+        json.dumps(
+            {
+                "generated_at": generated_at,
+                "dataset_prefix": settings.dataset_prefix,
+                "run_id": settings.run_id,
+                "files": manifest_payload,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    manifest.append(
+        UploadItem(
+            source_path=manifest_file,
+            object_key=build_object_key(
+                settings.dataset_prefix,
+                settings.run_id,
+                "manifest.json",
+                section="extracted",
+            ),
+        )
+    )
 
     return manifest
 
@@ -132,12 +191,14 @@ def run_import(settings: Settings, *, minio_factory=Minio, kaggle_api_factory=No
         extracted_dir.mkdir()
         extract_archive(archive_path, extracted_dir)
 
-        manifest = build_upload_manifest(settings, archive_path, extracted_dir)
-        extracted_count = len(manifest) - 1
+        extracted_assets = list(iter_dataset_assets(extracted_dir))
+        extracted_count = len(extracted_assets)
         if extracted_count <= 0:
             raise FileNotFoundError(
                 "No .csv or .png files were found after extracting the Kaggle dataset."
             )
+
+        manifest = build_upload_manifest(settings, archive_path, extracted_dir)
 
         for item in manifest:
             upload_file(client, settings.minio_bucket, item)

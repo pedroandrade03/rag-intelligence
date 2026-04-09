@@ -18,6 +18,7 @@ from rag_intelligence.documents import (
     build_weapon_map_profile_text,
     run_document_build,
 )
+from rag_intelligence.gold import build_gold_events_key
 
 
 def build_settings(
@@ -42,7 +43,10 @@ def build_settings(
 
 
 def _events_key() -> str:
-    return "csgo-matchmaking-damage/20260306T025119Z/curated/events.csv"
+    return build_gold_events_key(
+        dataset_prefix="csgo-matchmaking-damage",
+        run_id="20260306T025119Z",
+    )
 
 
 # ---------------------------------------------------------------------------

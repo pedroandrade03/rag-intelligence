@@ -14,7 +14,9 @@ class FakeKaggleApi:
     def dataset_download_files(self, dataset: str, path: str, unzip: bool, quiet: bool) -> None:
         archive_path = Path(path) / f"{dataset.rsplit('/', maxsplit=1)[-1]}.zip"
         with zipfile.ZipFile(archive_path, "w") as archive:
-            archive.writestr("mm_master_demos.csv", "tick,damage\n1,27\n")
+            archive.writestr("esea_meta_demos.part1.csv", "file,round,map,winner_side,ct_eq_val,t_eq_val\n")
+            archive.writestr("esea_master_kills_demos.part1.csv", "file,round,tick\n")
+            archive.writestr("esea_master_dmg_demos.part1.csv", "file,round,hp_dmg\n")
             archive.writestr("maps/de_inferno.png", "png-bytes")
             archive.writestr("notes.txt", "ignore me")
 
@@ -58,14 +60,14 @@ def build_settings() -> Settings:
 
 
 def test_iter_dataset_assets_filters_only_csv_and_png(tmp_path) -> None:
-    (tmp_path / "mm_master_demos.csv").write_text("tick,damage\n")
+    (tmp_path / "esea_meta_demos.part1.csv").write_text("file,round\n")
     (tmp_path / "maps").mkdir()
     (tmp_path / "maps" / "de_inferno.png").write_text("png")
     (tmp_path / "notes.txt").write_text("ignore")
 
     files = [path.relative_to(tmp_path).as_posix() for path in iter_dataset_assets(tmp_path)]
 
-    assert files == ["maps/de_inferno.png", "mm_master_demos.csv"]
+    assert files == ["esea_meta_demos.part1.csv", "maps/de_inferno.png"]
 
 
 def test_run_import_uploads_raw_archive_and_filtered_assets() -> None:
@@ -80,6 +82,9 @@ def test_run_import_uploads_raw_archive_and_filtered_assets() -> None:
     assert fake_minio.bucket_created is True
     assert uploaded == [
         "csgo-matchmaking-damage/20260306T010203Z/raw/csgo-matchmaking-damage.zip",
-        "csgo-matchmaking-damage/20260306T010203Z/extracted/maps/de_inferno.png",
-        "csgo-matchmaking-damage/20260306T010203Z/extracted/mm_master_demos.csv",
+        "csgo-matchmaking-damage/20260306T010203Z/extracted/damage/esea_master_dmg_demos.part1.csv",
+        "csgo-matchmaking-damage/20260306T010203Z/extracted/kills/esea_master_kills_demos.part1.csv",
+        "csgo-matchmaking-damage/20260306T010203Z/extracted/round_meta/esea_meta_demos.part1.csv",
+        "csgo-matchmaking-damage/20260306T010203Z/extracted/assets/maps/de_inferno.png",
+        "csgo-matchmaking-damage/20260306T010203Z/extracted/manifest.json",
     ]

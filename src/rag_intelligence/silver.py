@@ -5,8 +5,7 @@ import json
 import logging
 import re
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -18,22 +17,18 @@ from rag_intelligence.minio_utils import clean_cell, ensure_bucket
 
 LOGGER = logging.getLogger(__name__)
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_WINNER_CT_VALUES = {"CT", "COUNTERTERRORIST", "COUNTER_TERRORIST", "COUNTER-TERRORIST"}
+_WINNER_T_VALUES = {"T", "TERRORIST"}
 
-_NUMERIC_BASE_COLUMNS = {"damage", "health", "armor", "money", "tick", "distance"}
-_NUMERIC_EXACT_COLUMNS = {"round", "round_id", "round_num", "round_number", "flash_duration"}
-
-
-@dataclass(frozen=True)
-class FileQualityMetrics:
-    rows_read: int
-    rows_output: int
-    duplicate_rows: int
-    invalid_rows: int
-    all_null_rows: int
-
-    @property
-    def rows_removed(self) -> int:
-        return self.duplicate_rows + self.invalid_rows + self.all_null_rows
+ROUND_META_CONTEXT_COLUMNS = (
+    "file",
+    "round_number",
+    "map",
+    "round_type",
+    "winner_side_current",
+    "ct_eq_val",
+    "t_eq_val",
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +53,10 @@ def build_silver_object_key(dataset_prefix: str, run_id: str, relative_path: str
     normalized_run_id = run_id.strip("/")
     normalized_relative_path = relative_path.replace("\\", "/").lstrip("/")
     return f"{normalized_prefix}/{normalized_run_id}/cleaned/{normalized_relative_path}"
+
+
+def build_round_meta_context_key(dataset_prefix: str, run_id: str) -> str:
+    return build_silver_object_key(dataset_prefix, run_id, "round_meta_context.csv")
 
 
 def build_quality_report_key(dataset_prefix: str, run_id: str) -> str:
@@ -86,111 +85,99 @@ def normalize_column_names(fieldnames: list[str]) -> list[str]:
         base_name = normalize_column_name(original_name)
         counter = seen.get(base_name, 0) + 1
         seen[base_name] = counter
-
-        if counter == 1:
-            normalized_names.append(base_name)
-        else:
-            normalized_names.append(f"{base_name}_{counter}")
+        normalized_names.append(base_name if counter == 1 else f"{base_name}_{counter}")
 
     return normalized_names
 
 
-def is_numeric_metric_column(column_name: str) -> bool:
-    if column_name in _NUMERIC_EXACT_COLUMNS:
-        return True
-
-    for base_column in _NUMERIC_BASE_COLUMNS:
-        if (
-            column_name == base_column
-            or column_name.startswith(f"{base_column}_")
-            or column_name.endswith(f"_{base_column}")
-        ):
-            return True
-
-    return False
+def _normalize_winner_side(value: str | None) -> str | None:
+    text = (value or "").strip().upper()
+    if text in _WINNER_CT_VALUES:
+        return "CT"
+    if text in _WINNER_T_VALUES:
+        return "T"
+    return None
 
 
-def normalize_numeric_value(value: str) -> str:
+def _normalize_positive_int(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        number = int(Decimal(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if number <= 0:
+        return None
+    return str(number)
+
+
+def _normalize_non_negative_number(value: str | None) -> str | None:
+    if value is None:
+        return None
     try:
         number = Decimal(value)
-    except InvalidOperation as exc:
-        raise ValueError(f"Invalid numeric value: {value}") from exc
-
+    except InvalidOperation:
+        return None
     if not number.is_finite() or number < 0:
-        raise ValueError(f"Invalid numeric value: {value}")
-
+        return None
     if number == number.to_integral_value():
         return str(int(number))
-
-    normalized = format(number.normalize(), "f").rstrip("0").rstrip(".")
-    return normalized or "0"
+    return format(number.normalize(), "f").rstrip("0").rstrip(".") or "0"
 
 
-def clean_csv_file(source_path: Path, target_path: Path) -> FileQualityMetrics:
-    rows_read = 0
-    rows_output = 0
-    duplicate_rows = 0
-    invalid_rows = 0
-    all_null_rows = 0
+def _is_round_meta_source(object_name: str) -> bool:
+    normalized = object_name.lower()
+    if "/round_meta/" in normalized:
+        return True
+    return "meta" in Path(normalized).name
 
-    target_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with source_path.open("r", newline="", encoding="utf-8-sig", errors="replace") as source_file:
-        reader = csv.DictReader(source_file)
-        source_fieldnames = list(reader.fieldnames or [])
-        normalized_fieldnames = normalize_column_names(source_fieldnames)
-        mapping = list(zip(source_fieldnames, normalized_fieldnames, strict=False))
-        numeric_columns = [col for col in normalized_fieldnames if is_numeric_metric_column(col)]
+def _first_available(row: dict[str, str | None], candidates: tuple[str, ...]) -> str | None:
+    for candidate in candidates:
+        value = row.get(candidate)
+        if value is not None:
+            return value
+    return None
 
-        with target_path.open("w", newline="", encoding="utf-8") as target_file:
-            writer = csv.DictWriter(target_file, fieldnames=normalized_fieldnames)
-            if normalized_fieldnames:
-                writer.writeheader()
 
-            seen_rows: set[tuple[str, ...]] = set()
+def _normalize_round_meta_row(normalized_row: dict[str, str | None]) -> tuple[dict[str, str] | None, str]:
+    file_value = _first_available(normalized_row, ("file", "demo_file"))
+    round_value = _first_available(normalized_row, ("round", "round_number", "round_num", "round_id"))
+    map_value = _first_available(normalized_row, ("map",))
+    round_type = _first_available(normalized_row, ("round_type",)) or "unknown"
+    winner_side = _first_available(normalized_row, ("winner_side",))
+    ct_eq_val = _first_available(normalized_row, ("ct_eq_val", "ct_eq", "ct_money"))
+    t_eq_val = _first_available(normalized_row, ("t_eq_val", "t_eq", "t_money"))
 
-            for source_row in reader:
-                rows_read += 1
-                normalized_row: dict[str, str | None] = {}
+    if not file_value or not round_value or not map_value:
+        return None, "missing_required_fields"
+    if not winner_side or ct_eq_val is None or t_eq_val is None:
+        return None, "missing_required_fields"
 
-                for source_column, normalized_column in mapping:
-                    normalized_row[normalized_column] = clean_cell(source_row.get(source_column))
+    normalized_winner = _normalize_winner_side(winner_side)
+    if normalized_winner is None:
+        return None, "invalid_winner_side"
 
-                if normalized_row and all(value is None for value in normalized_row.values()):
-                    all_null_rows += 1
-                    continue
+    normalized_round = _normalize_positive_int(round_value)
+    if normalized_round is None:
+        return None, "invalid_round"
 
-                invalid_row = False
-                for numeric_column in numeric_columns:
-                    current_value = normalized_row.get(numeric_column)
-                    if current_value is None:
-                        continue
-                    try:
-                        normalized_row[numeric_column] = normalize_numeric_value(current_value)
-                    except ValueError:
-                        invalid_row = True
-                        break
+    normalized_ct_eq = _normalize_non_negative_number(ct_eq_val)
+    normalized_t_eq = _normalize_non_negative_number(t_eq_val)
+    if normalized_ct_eq is None or normalized_t_eq is None:
+        return None, "invalid_economy"
 
-                if invalid_row:
-                    invalid_rows += 1
-                    continue
-
-                dedup_key = tuple((normalized_row.get(col) or "") for col in normalized_fieldnames)
-                if dedup_key in seen_rows:
-                    duplicate_rows += 1
-                    continue
-
-                seen_rows.add(dedup_key)
-                out = {col: normalized_row.get(col) or "" for col in normalized_fieldnames}
-                writer.writerow(out)
-                rows_output += 1
-
-    return FileQualityMetrics(
-        rows_read=rows_read,
-        rows_output=rows_output,
-        duplicate_rows=duplicate_rows,
-        invalid_rows=invalid_rows,
-        all_null_rows=all_null_rows,
+    return (
+        {
+            "file": file_value,
+            "round_number": normalized_round,
+            "map": map_value,
+            "round_type": round_type,
+            "winner_side_current": normalized_winner,
+            "ct_eq_val": normalized_ct_eq,
+            "t_eq_val": normalized_t_eq,
+        },
+        "",
     )
 
 
@@ -213,11 +200,9 @@ def run_silver_transform(
         settings.bronze_source_run_id,
     )
 
-    source_objects: list[str] = sorted(
+    source_objects = sorted(
         obj.object_name
-        for obj in client.list_objects(
-            settings.bronze_bucket, prefix=source_prefix, recursive=True
-        )
+        for obj in client.list_objects(settings.bronze_bucket, prefix=source_prefix, recursive=True)
         if obj.object_name and obj.object_name.lower().endswith(".csv")
     )
     if not source_objects:
@@ -226,62 +211,115 @@ def run_silver_transform(
             f"run_id={settings.bronze_source_run_id} under prefix={source_prefix}"
         )
 
-    def _process_file(source_object: str, temp_path: Path) -> tuple[str, dict[str, object]]:
-        relative_path = source_object[len(source_prefix) :]
-        source_file = temp_path / "in" / relative_path
-        target_file = temp_path / "out" / relative_path
-        source_file.parent.mkdir(parents=True, exist_ok=True)
-
-        LOGGER.info("Processing %s", source_object)
-        client.fget_object(settings.bronze_bucket, source_object, str(source_file))
-        metrics = clean_csv_file(source_file, target_file)
-
-        target_object = build_silver_object_key(
-            settings.silver_dataset_prefix,
-            settings.silver_run_id,
-            relative_path,
+    round_meta_sources = [object_name for object_name in source_objects if _is_round_meta_source(object_name)]
+    if not round_meta_sources:
+        raise FileNotFoundError(
+            "No round_meta CSV files were found in Bronze for "
+            f"run_id={settings.bronze_source_run_id} under prefix={source_prefix}"
         )
-        client.fput_object(
-            bucket_name=settings.silver_bucket,
-            object_name=target_object,
-            file_path=str(target_file),
-            content_type="text/csv",
-        )
-        return target_object, {
-            "source_object": source_object,
-            "target_object": target_object,
-            **asdict(metrics),
-            "rows_removed": metrics.rows_removed,
-        }
 
-    uploaded_objects: list[str] = []
-    quality_files: list[dict[str, object]] = []
-    total_rows_read = 0
-    total_rows_output = 0
-
-    artifact_prefix = build_silver_artifact_prefix(
-        settings.silver_dataset_prefix,
-        settings.silver_run_id,
-    )
+    rows_read = 0
+    duplicate_round_keys = 0
+    invalid_rows = 0
+    missing_required_rows = 0
+    schema_incompatible_files = 0
+    by_round_key: dict[tuple[str, str], dict[str, str]] = {}
 
     with tempfile.TemporaryDirectory(prefix="silver-transform-") as temp_dir:
         temp_path = Path(temp_dir)
+        for source_object in round_meta_sources:
+            relative_path = source_object[len(source_prefix) :]
+            source_file = temp_path / "in" / relative_path
+            source_file.parent.mkdir(parents=True, exist_ok=True)
+            client.fget_object(settings.bronze_bucket, source_object, str(source_file))
 
-        max_workers = min(8, len(source_objects))
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = [pool.submit(_process_file, obj, temp_path) for obj in source_objects]
-            for future in futures:
-                target_object, file_report = future.result()
-                uploaded_objects.append(target_object)
-                total_rows_read += file_report["rows_read"]  # type: ignore[operator]
-                total_rows_output += file_report["rows_output"]  # type: ignore[operator]
-                quality_files.append(file_report)
+            with source_file.open("r", newline="", encoding="utf-8-sig", errors="replace") as csv_file:
+                reader = csv.DictReader(csv_file)
+                source_fieldnames = list(reader.fieldnames or [])
+                normalized_fieldnames = normalize_column_names(source_fieldnames)
+                if not source_fieldnames or len(source_fieldnames) != len(normalized_fieldnames):
+                    schema_incompatible_files += 1
+                    continue
 
+                mapping = list(zip(source_fieldnames, normalized_fieldnames, strict=False))
+                has_required = {
+                    "file",
+                    "round",
+                    "map",
+                    "winner_side",
+                    "ct_eq_val",
+                    "t_eq_val",
+                }.intersection(set(normalized_fieldnames))
+                if len(has_required) < 5:
+                    # Allow round aliases, but still require minimum semantic fields.
+                    if "file" not in normalized_fieldnames or "map" not in normalized_fieldnames:
+                        schema_incompatible_files += 1
+                        continue
+
+                for source_row in reader:
+                    rows_read += 1
+                    normalized_row: dict[str, str | None] = {}
+                    for source_col, normalized_col in mapping:
+                        normalized_row[normalized_col] = clean_cell(source_row.get(source_col))
+
+                    normalized_entry, reason = _normalize_round_meta_row(normalized_row)
+                    if normalized_entry is None:
+                        if reason == "missing_required_fields":
+                            missing_required_rows += 1
+                        else:
+                            invalid_rows += 1
+                        continue
+
+                    round_key = (
+                        normalized_entry["file"],
+                        normalized_entry["round_number"],
+                    )
+                    if round_key in by_round_key:
+                        duplicate_round_keys += 1
+                    by_round_key[round_key] = normalized_entry
+
+        if not by_round_key:
+            raise ValueError("No valid round_meta rows were produced in Silver.")
+
+        output_rows = sorted(
+            by_round_key.values(),
+            key=lambda row: (row["file"], int(row["round_number"])),
+        )
+        rows_output = len(output_rows)
+
+        round_meta_context_file = temp_path / "out" / "round_meta_context.csv"
+        round_meta_context_file.parent.mkdir(parents=True, exist_ok=True)
+        with round_meta_context_file.open("w", newline="", encoding="utf-8") as output_file:
+            writer = csv.DictWriter(output_file, fieldnames=list(ROUND_META_CONTEXT_COLUMNS))
+            writer.writeheader()
+            writer.writerows(output_rows)
+
+        round_meta_context_key = build_round_meta_context_key(
+            settings.silver_dataset_prefix,
+            settings.silver_run_id,
+        )
+        client.fput_object(
+            bucket_name=settings.silver_bucket,
+            object_name=round_meta_context_key,
+            file_path=str(round_meta_context_file),
+            content_type="text/csv",
+        )
+
+        artifact_prefix = build_silver_artifact_prefix(
+            settings.silver_dataset_prefix,
+            settings.silver_run_id,
+        )
         quality_summary = {
-            "files_processed": len(quality_files),
-            "rows_read": total_rows_read,
-            "rows_output": total_rows_output,
-            "rows_removed": total_rows_read - total_rows_output,
+            "files_processed": len(round_meta_sources),
+            "rows_read": rows_read,
+            "rows_output": rows_output,
+            "rows_removed": rows_read - rows_output,
+            "duplicate_round_keys": duplicate_round_keys,
+            "invalid_rows": invalid_rows,
+            "missing_required_rows": missing_required_rows,
+            "schema_incompatible_files": schema_incompatible_files,
+            "source_csv_files_total": len(source_objects),
+            "source_round_meta_files": len(round_meta_sources),
         }
         quality_report = {
             "generated_at": datetime.now(UTC).isoformat(),
@@ -292,13 +330,12 @@ def run_silver_transform(
             "bronze_dataset_prefix": settings.bronze_dataset_prefix,
             "silver_dataset_prefix": settings.silver_dataset_prefix,
             "artifact_prefix": artifact_prefix,
-            "files": quality_files,
+            "output_object": round_meta_context_key,
             "summary": quality_summary,
         }
 
         quality_report_file = temp_path / "quality_report.json"
         quality_report_file.write_text(json.dumps(quality_report, indent=2), encoding="utf-8")
-
         quality_report_key = build_quality_report_key(
             settings.silver_dataset_prefix,
             settings.silver_run_id,
@@ -310,13 +347,13 @@ def run_silver_transform(
             content_type="application/json",
         )
 
-    uploaded_objects.append(quality_report_key)
+    uploaded_objects = [round_meta_context_key, quality_report_key]
     return SilverTransformResult(
         uploaded_objects=uploaded_objects,
         artifact_prefix=artifact_prefix,
         quality_report_key=quality_report_key,
-        files_processed=len(quality_files),
-        rows_read=total_rows_read,
-        rows_output=total_rows_output,
+        files_processed=len(round_meta_sources),
+        rows_read=rows_read,
+        rows_output=rows_output,
         quality_summary=quality_summary,
     )

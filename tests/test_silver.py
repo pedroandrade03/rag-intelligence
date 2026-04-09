@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 
 import pytest
@@ -7,8 +8,8 @@ import pytest
 from conftest import FakeMinio
 from rag_intelligence.config import SilverSettings
 from rag_intelligence.silver import (
+    build_round_meta_context_key,
     build_silver_object_key,
-    clean_csv_file,
     normalize_column_names,
     run_silver_transform,
 )
@@ -30,10 +31,10 @@ def build_settings() -> SilverSettings:
 
 
 def test_normalize_column_names_handles_duplicates_and_empty_values() -> None:
-    assert normalize_column_names([" Damage ", "Damage", "Flash Duration", "!!!"]) == [
+    assert normalize_column_names([" Damage ", "Damage", "Round Number", "!!!"]) == [
         "damage",
         "damage_2",
-        "flash_duration",
+        "round_number",
         "column",
     ]
 
@@ -42,53 +43,27 @@ def test_build_silver_object_key_uses_cleaned_prefix() -> None:
     key = build_silver_object_key(
         "csgo-matchmaking-damage",
         "20260306T023831Z",
-        "maps/mm_master_demos.csv",
+        "round_meta_context.csv",
     )
-    assert key == "csgo-matchmaking-damage/20260306T023831Z/cleaned/maps/mm_master_demos.csv"
+    assert key == "csgo-matchmaking-damage/20260306T023831Z/cleaned/round_meta_context.csv"
 
 
-def test_clean_csv_file_applies_schema_aware_rules(tmp_path) -> None:
-    source = tmp_path / "source.csv"
-    target = tmp_path / "target.csv"
-    source.write_text(
-        (
-            "Damage,Tick,Player,Notes\n"
-            "10,1, Alice , ok \n"
-            "10,1,Alice,ok\n"
-            "-5,2,Bob,oops\n"
-            "abc,4,Eve,err\n"
-            ",,,\n"
-        ),
-        encoding="utf-8",
-    )
-
-    metrics = clean_csv_file(source, target)
-    output = target.read_text(encoding="utf-8")
-
-    assert metrics.rows_read == 5
-    assert metrics.rows_output == 1
-    assert metrics.duplicate_rows == 1
-    assert metrics.invalid_rows == 2
-    assert metrics.all_null_rows == 1
-    assert output == "damage,tick,player,notes\n10,1,Alice,ok\n"
-
-
-def test_run_silver_transform_processes_all_csvs_and_writes_quality_report() -> None:
+def test_run_silver_transform_builds_round_meta_context_and_report() -> None:
     bronze_prefix = "csgo-matchmaking-damage/20260306T023831Z/extracted"
     initial_objects = {
         "bronze": {
-            f"{bronze_prefix}/mm_master_demos.csv": (
-                b"Damage,Tick,Player,Notes\n"
-                b"10,1, Alice , ok \n"
-                b"10,1,Alice,ok\n"
-                b"-5,2,Bob,oops\n"
-                b"abc,4,Eve,err\n"
-                b",,,\n"
+            f"{bronze_prefix}/round_meta/esea_meta_demos.part1.csv": (
+                b"file,round,map,winner_side,round_type,ct_eq_val,t_eq_val\n"
+                b"demo_1,1,de_mirage,CT,pistol,2500,1200\n"
+                b"demo_1,1,de_mirage,COUNTERTERRORIST,pistol,3000,1200\n"
+                b"demo_1,2,de_mirage,T,gunround,4200,5100\n"
+                b"demo_2,1,de_inferno,T,error,-10,2000\n"
+                b"demo_2,2,de_inferno,T,eco,1800,2000\n"
             ),
-            f"{bronze_prefix}/nested/mm_grenades_demos.csv": (
-                b"Round Num,Flash Duration,Money\n1,1.5,800\n1,1.5,800\n2,-1,1000\n"
+            f"{bronze_prefix}/kills/esea_master_kills_demos.part1.csv": (
+                b"file,round,tick\n"
+                b"demo_1,1,100\n"
             ),
-            f"{bronze_prefix}/maps/de_inferno.png": b"png",
         }
     }
     fake_minio = FakeMinio(
@@ -103,56 +78,51 @@ def test_run_silver_transform_processes_all_csvs_and_writes_quality_report() -> 
     result = run_silver_transform(build_settings(), minio_factory=lambda **kwargs: fake_minio)
 
     assert "silver" in fake_minio.buckets
-    assert result.files_processed == 2
-    assert result.rows_read == 8
-    assert result.rows_output == 2
+    assert result.files_processed == 1
+    assert result.rows_read == 5
+    assert result.rows_output == 3
     assert result.artifact_prefix == "csgo-matchmaking-damage/20260306T023831Z/cleaned/"
-    assert result.quality_summary == {
-        "files_processed": 2,
-        "rows_read": 8,
-        "rows_output": 2,
-        "rows_removed": 6,
-    }
-    assert result.quality_report_key in result.uploaded_objects
 
     silver_objects = fake_minio.objects["silver"]
-    cleaned_key_1 = "csgo-matchmaking-damage/20260306T023831Z/cleaned/mm_master_demos.csv"
-    cleaned_key_2 = "csgo-matchmaking-damage/20260306T023831Z/cleaned/nested/mm_grenades_demos.csv"
+    round_meta_context_key = build_round_meta_context_key("csgo-matchmaking-damage", "20260306T023831Z")
     report_key = "csgo-matchmaking-damage/20260306T023831Z/quality_report.json"
-
-    assert cleaned_key_1 in silver_objects
-    assert cleaned_key_2 in silver_objects
+    assert round_meta_context_key in silver_objects
     assert report_key in silver_objects
+    assert report_key in result.uploaded_objects
 
-    assert (
-        silver_objects[cleaned_key_1].decode("utf-8").replace("\r\n", "\n")
-        == "damage,tick,player,notes\n10,1,Alice,ok\n"
-    )
-    assert (
-        silver_objects[cleaned_key_2].decode("utf-8").replace("\r\n", "\n")
-        == "round_num,flash_duration,money\n1,1.5,800\n"
-    )
+    rows = list(csv.DictReader(silver_objects[round_meta_context_key].decode("utf-8").splitlines()))
+    assert len(rows) == 3
+    assert rows[0]["file"] == "demo_1"
+    assert rows[0]["round_number"] == "1"
+    assert rows[0]["winner_side_current"] == "CT"
+    assert rows[0]["ct_eq_val"] == "3000"  # duplicate round keeps latest
+    assert rows[1]["winner_side_current"] == "T"
+    assert rows[2]["file"] == "demo_2"
 
     report = json.loads(silver_objects[report_key].decode("utf-8"))
     assert report["artifact_prefix"] == result.artifact_prefix
-    assert report["summary"] == {
-        "files_processed": 2,
-        "rows_read": 8,
-        "rows_output": 2,
-        "rows_removed": 6,
-    }
+    assert report["summary"]["files_processed"] == 1
+    assert report["summary"]["rows_read"] == 5
+    assert report["summary"]["rows_output"] == 3
+    assert report["summary"]["rows_removed"] == 2
+    assert report["summary"]["duplicate_round_keys"] == 1
+    assert report["summary"]["invalid_rows"] == 1
 
 
-def test_run_silver_transform_fails_when_no_csv_for_run_id() -> None:
+def test_run_silver_transform_fails_when_no_round_meta_csv() -> None:
     bronze_prefix = "csgo-matchmaking-damage/20260306T023831Z/extracted"
     fake_minio = FakeMinio(
         "localhost:9000",
         "minioadmin",
         "minioadmin",
         False,
-        initial_objects={"bronze": {f"{bronze_prefix}/maps/de_inferno.png": b"png"}},
+        initial_objects={
+            "bronze": {
+                f"{bronze_prefix}/kills/esea_master_kills_demos.part1.csv": b"file,round,tick\nx,1,1\n"
+            }
+        },
         existing_buckets={"bronze"},
     )
 
-    with pytest.raises(FileNotFoundError, match="No CSV files were found in Bronze"):
+    with pytest.raises(FileNotFoundError, match="No round_meta CSV files were found in Bronze"):
         run_silver_transform(build_settings(), minio_factory=lambda **kwargs: fake_minio)

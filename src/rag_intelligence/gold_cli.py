@@ -26,7 +26,7 @@ def main() -> int:
     logging.info(
         (
             "Gold transform finished successfully: "
-            "files=%s rows_in=%s rows_out=%s events=%s report=%s"
+            "files=%s rows_in=%s rows_out=%s round_context=%s report=%s"
         ),
         result.files_processed,
         result.rows_read,

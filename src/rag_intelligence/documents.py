@@ -683,6 +683,17 @@ def run_document_build(
         missing_columns = sorted(REQUIRED_GOLD_COLUMNS - fieldnames)
         if missing_columns:
             joined_missing = ", ".join(missing_columns)
+            if {
+                "file",
+                "round_number",
+                "winner_side_current",
+                "ct_eq_val",
+                "t_eq_val",
+            }.issubset(fieldnames):
+                raise ValueError(
+                    "Gold is in ML-first round_context mode. "
+                    "Document generation from event-level rows is disabled in this mode."
+                )
             raise ValueError(f"Gold events.csv is missing required columns: {joined_missing}")
 
         for row in reader:
