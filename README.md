@@ -183,6 +183,68 @@ flowchart LR
     class models planned;
 ```
 
+### Versão final única
+
+```mermaid
+flowchart TB
+    %% Definição de Estilos
+    classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
+    classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
+
+    %% Fontes e Ingestão
+    DS[Kaggle Dataset] --> IMP[importer: Job Python]:::implemented
+
+    subgraph Infra_Docker [Docker Compose - Orquestração Local]
+        direction TB
+        
+        subgraph Data_Lake [MinIO Data Lake]
+            direction LR
+            B[Bronze: Raw]:::implemented --> S[Silver: Cleaned]:::implemented --> G[Gold: Curated]:::implemented
+        end
+
+        subgraph Storage_Layer [Camada de Persistência]
+            PG[(PostgreSQL + pgvector)]:::implemented
+        end
+
+        subgraph AI_Engine [LlamaIndex Engine]
+            DOCS[Document Construction]:::implemented
+            ING[IngestionPipeline]:::implemented
+            RAG[RAG Synthesis]:::implemented
+            ANL[Analytics & Modelos]:::planned
+        end
+
+        subgraph Backend_App [FastAPI Backend]
+            API[API Endpoints /SSE]:::implemented
+        end
+
+        OLLAMA[Ollama: Local LLM]:::implemented
+        MLF[MLflow: Tracking]:::planned
+    end
+
+    subgraph Frontend_App [Next.js App]
+        FE[Interface Web]:::implemented
+    end
+
+    %% Fluxos de Conexão
+    IMP --> B
+    B -.->|Metadados| PG
+    G --> DOCS --> ING --> PG
+    PG --> RAG
+    RAG -.->|LLM Call| OLLAMA
+    RAG --> API
+    G -.-> ANL --> API
+    FE <-->|HTTP / Streaming| API
+
+    %% Observabilidade
+    DOCS -.-> MLF
+    ING -.-> MLF
+    ANL -.-> MLF
+
+    %% Atribuição de Classes
+    class B,S,G,PG,DOCS,ING,RAG,API,FE,IMP,OLLAMA implemented;
+    class ANL,MLF planned;
+```
+
 ### Estado Atual
 
 - **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI e endpoint `/search`), PB09 (API FastAPI com `/search` e `/rag/query` com streaming SSE), PB11 (frontend Next.js 16 com App Router, AI SDK, bootstrap server-side das sessoes e persistencia local em SQLite via route handlers), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, servidor MLflow opcional (`--profile mlflow`, Postgres + UI :5000), CI (ruff + pyright + pytest + eslint + next build).
