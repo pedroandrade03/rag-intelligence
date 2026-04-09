@@ -840,6 +840,90 @@ Verifique no MinIO:
 
 As regras aplicadas incluem normalização de colunas, trim de texto, remoção de linhas totalmente nulas, remoção de duplicados e descarte de valores numéricos inválidos/negativos nas métricas conhecidas.
 
+## Detalhes do Silver
+
+### Objetivo
+
+Transformar os CSVs extraídos da camada Bronze em arquivos CSV limpos e versionados na camada Silver.
+
+### Entradas
+
+- Bucket de origem: `BRONZE_BUCKET` (geralmente `bronze`)
+- Prefixo de entrada: `BRONZE_DATASET_PREFIX` e `BRONZE_SOURCE_RUN_ID`
+- Caminho esperado: `bronze/<dataset_prefix>/<run_id>/extracted/...`
+- Apenas arquivos `.csv` são processados
+- Objetos não-CSV são ignorados
+
+### Saídas
+
+- Bucket de destino: `SILVER_BUCKET` (geralmente `silver`)
+- Prefixo de saída: `silver/<silver_dataset_prefix>/<silver_run_id>/cleaned/...`
+- Mantém a estrutura relativa de subpastas do `extracted/`
+- Relatório de qualidade: `silver/<silver_dataset_prefix>/<silver_run_id>/quality_report.json`
+
+### Regras de limpeza e padronização
+
+- Normalização de cabeçalhos:
+  - remove caracteres não alfanuméricos
+  - converte nomes para minúsculas
+  - substitui separadores por `_`
+  - remove `_` extras no início/fim
+  - colunas duplicadas recebem sufixo `_2`, `_3`, ...
+  - colunas vazias viram `column`
+- Limpeza de valores de célula:
+  - trim de espaços em branco
+  - strings vazias são tratadas como `null`
+  - campos nulos são escritos como valores vazios no CSV de saída
+- Validação de métricas numéricas:
+  - colunas conhecidas de métricas numéricas são detectadas pelo nome
+  - valores inteiros permanecem inteiros
+  - valores decimais são normalizados sem zeros finais
+  - negativos, `NaN`, infinidades ou textos não numéricos são considerados inválidos
+- Remoção de linhas:
+  - linhas com todos os campos nulos são descartadas
+  - linhas com valores numéricos inválidos nas colunas métricas conhecidas são descartadas
+  - linhas duplicadas após normalização são descartadas
+
+### Colunas numéricas tratadas automaticamente
+
+As colunas numéricas são identificadas por correspondência com um conjunto de métricas padrão, incluindo:
+
+- `damage`, `health`, `armor`, `money`, `tick`, `distance`
+- `round`, `round_id`, `round_num`, `round_number`, `flash_duration`
+
+E qualquer coluna que comece ou termine com os nomes base acima, como `damage_2` ou `round_num`.
+
+### Relatório de qualidade
+
+O arquivo JSON de relatório inclui:
+
+- `generated_at`: timestamp UTC da execução
+- `bronze_bucket`, `silver_bucket`
+- `bronze_source_run_id`, `silver_run_id`
+- `bronze_dataset_prefix`, `silver_dataset_prefix`
+- `files`: lista de métricas por arquivo
+- `summary`: totais agregados
+
+Cada item de arquivo contém:
+
+- `source_object`
+- `target_object`
+- `rows_read`
+- `rows_output`
+- `duplicate_rows`
+- `invalid_rows`
+- `all_null_rows`
+- `rows_removed`
+
+### Critérios de consistência por execução
+
+- Cada execução do Silver deve produzir um único relatório em `silver/<dataset_prefix>/<run_id>/quality_report.json`
+- Todos os arquivos CSV processados devem residir em `silver/<dataset_prefix>/<run_id>/cleaned/`
+- `rows_removed` deve ser igual a `duplicate_rows + invalid_rows + all_null_rows`
+- `files_processed` deve refletir o número de CSVs processados
+- A execução deve falhar se não houver arquivos CSV no prefixo Bronze esperado
+- As métricas `rows_read` e `rows_output` devem ser determinísticas para os mesmos dados de entrada e regras de transformação
+
 # Implementação PB03
 
 ## Objetivo
