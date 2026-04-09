@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 
 import pytest
 
@@ -17,7 +18,6 @@ from rag_intelligence.documents import (
     build_weapon_map_profile_text,
     run_document_build,
 )
-from collections import Counter
 
 
 def build_settings(
@@ -84,7 +84,7 @@ def test_build_weapon_map_profile_text_damage() -> None:
     assert "ak47" in text
     assert "de_dust2" in text
     assert "27.0" in text  # avg_hp = 27000/1000
-    assert "111" in text   # max_hp
+    assert "111" in text  # max_hp
     assert "20.0%" in text  # headshot_rate = 200/1000
 
 
@@ -107,8 +107,11 @@ def test_build_weapon_map_profile_text_kill() -> None:
 
 def test_build_map_overview_text() -> None:
     from collections import defaultdict
+
     entry = {
-        "event_type_counter": Counter({"damage": 1000, "kill": 200, "grenade": 50, "round_meta": 30}),
+        "event_type_counter": Counter(
+            {"damage": 1000, "kill": 200, "grenade": 50, "round_meta": 30}
+        ),
         "weapon_damage": defaultdict(float, {"ak47": 50000.0, "m4a4": 30000.0}),
         "weapon_kills": Counter({"ak47": 100, "awp": 80}),
         "winner_side_counter": Counter({"CT": 18, "T": 12}),
@@ -135,7 +138,7 @@ def test_build_hotspot_zone_text() -> None:
     assert "1000" in text
     assert "-500" in text
     assert "500" in text  # damage_count
-    assert "80" in text   # kill_count
+    assert "80" in text  # kill_count
 
 
 def test_build_round_type_text() -> None:
@@ -252,7 +255,7 @@ def test_run_document_build_produces_weapon_map_profiles() -> None:
         initial_objects={"gold": {_events_key(): _GOLD_CSV}},
         existing_buckets={"gold"},
     )
-    result = run_document_build(
+    run_document_build(
         build_settings(),
         minio_factory=lambda **kwargs: fake_minio,
     )

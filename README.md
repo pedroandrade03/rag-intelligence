@@ -34,7 +34,7 @@ O sistema alvo do projeto é organizado em cinco camadas:
 - **Camada de IA**: LlamaIndex como engine de RAG — `IngestionPipeline` para embeddings, `QueryEngine`/`ChatEngine` para recuperação e inferência, tudo dentro do processo FastAPI. Modelos preditivos com scikit-learn/pandas.
 - **Camada de Aplicação**: FastAPI para endpoints HTTP e streaming (SSE/WebSocket) via `astream_chat()` do LlamaIndex; Next.js como cliente web.
 - **Serviços de Suporte**: Ollama como provedor local de LLM/embeddings (fallback quando API keys não configuradas); provedores cloud (OpenAI, Anthropic, Voyage) via abstração LlamaIndex.
-- **Camada de MLOps**: MLflow para registrar experimentos, métricas e versões de modelos.
+- **Camada de MLOps**: servidor MLflow local (UI + API, backend PostgreSQL dedicado `mlflow`, artefatos em volume Docker) para consulta e registro de experimentos; instrumentação completa dos pipelines de ingestão/RAG ainda evolutiva.
 - **Infraestrutura**: Docker Compose como orquestração local e jobs Python para ingestão e transformação de dados.
 
 ### Legenda
@@ -68,7 +68,7 @@ flowchart LR
     end
 
     subgraph mlops[Camada de MLOps]
-        mlflow["MLflow<br/>Planejado"]
+        mlflow["MLflow tracking server<br/>Implementado"]
     end
 
     subgraph infra[Infraestrutura]
@@ -94,8 +94,8 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class bronze,compose,importer,silver,gold,pg,fe,ingest,ollama,rag,api,frontend implemented;
-    class ml,mlflow planned;
+    class bronze,compose,importer,silver,gold,pg,fe,ingest,ollama,rag,api,frontend,mlflow implemented;
+    class ml planned;
 ```
 
 ### Pipeline de Dados
@@ -164,7 +164,7 @@ flowchart LR
     ollama["Ollama<br/>Implementado"]
     gold["MinIO Gold<br/>Implementado"]
     models["Modelos preditivos<br/>Planejado"]
-    mlflow["MLflow<br/>Planejado"]
+    mlflow["MLflow tracking server<br/>Implementado"]
 
     user --> frontend
     frontend -->|"HTTP / SSE"| api
@@ -179,14 +179,15 @@ flowchart LR
     classDef implemented fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20,stroke-width:2px;
     classDef planned fill:#fff8e1,stroke:#ef6c00,color:#bf360c,stroke-dasharray: 5 5;
     classDef partial fill:#fff3e0,stroke:#ef6c00,color:#bf360c,stroke-width:2px;
-    class gold,pgvector,ollama,frontend,api,query implemented;
-    class models,mlflow planned;
+    class gold,pgvector,ollama,frontend,api,query,mlflow implemented;
+    class models planned;
 ```
 
 ### Estado Atual
 
-- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI e endpoint `/search`), PB09 (API FastAPI com `/search` e `/rag/query` com streaming SSE), PB11 (frontend Next.js 16 com App Router, AI SDK, bootstrap server-side das sessoes e persistencia local em SQLite via route handlers), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, CI (ruff + pyright + pytest + eslint + next build).
-- **Planejado**: PB10 (stats de armas/dano), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps/MLflow), PB18-PB20 (infra restante).
+- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI e endpoint `/search`), PB09 (API FastAPI com `/search` e `/rag/query` com streaming SSE), PB11 (frontend Next.js 16 com App Router, AI SDK, bootstrap server-side das sessoes e persistencia local em SQLite via route handlers), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, servidor MLflow opcional (`--profile mlflow`, Postgres + UI :5000), CI (ruff + pyright + pytest + eslint + next build).
+- **Planejado**: PB10 (stats de armas/dano), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps: logging sistemático nos pipelines além do servidor MLflow já disponível), PB18-PB20 (infra restante).
+- **Como rodar MLflow (local)**: com a stack base no ar, `docker compose --profile mlflow up -d` e abrir `http://localhost:5000`. Cliente Python (`mlops`), variável `MLFLOW_TRACKING_URI`, URI dentro do Compose e *fallback* manual do banco estão descritos em [MLflow (experimentos)](#mlflow-experimentos) (subseção de PB01, *Execução com Docker Compose*).
 
 ---
 
@@ -702,6 +703,46 @@ docker compose up -d
 ```
 
 O `bronze-importer` fica em um profile manual, então `docker compose up` não executa a ingestão novamente.
+
+### MLflow (experimentos)
+
+O tracking server usa o **mesmo TimescaleDB** do projeto: é criado o banco `mlflow` (metadados) e um volume Docker para artefatos. A UI usa a porta **5000** (o Grafana do profile `observability` usa a **3000**). A imagem do serviço é construída a partir de [`Dockerfile.mlflow`](Dockerfile.mlflow) (imagem oficial + `psycopg2-binary`, necessário para o backend PostgreSQL).
+
+Subir apenas **TimescaleDB + MLflow** (útil para testar sem MinIO/Ollama/API):
+
+```bash
+docker compose --profile mlflow up -d mlflow-db-init mlflow
+```
+
+Com a stack base já em execução (ou tudo de uma vez, incluindo `minio`, `ollama`, `rag-api`):
+
+```bash
+docker compose --profile mlflow up -d
+```
+
+- **UI**: [http://localhost:5000](http://localhost:5000)
+- **Python/notebooks no host**: defina `MLFLOW_TRACKING_URI=http://localhost:5000` (ver `.env.example`). Instale o cliente com `pip install -e ".[mlops]"` ou `uv sync --extra mlops`.
+- **Outros serviços no Compose**: use `http://mlflow:5000` como tracking URI.
+
+Se `PG_PASSWORD` contiver caracteres especiais para URL (`@`, `#`, `/`, etc.), aplique *percent-encoding* na senha ao montar a URI `postgresql://...` ou use senha alfanumérica simples em desenvolvimento.
+
+**Fallback** (Compose antigo sem `service_completed_successfully`): crie o banco manualmente uma vez:
+
+```bash
+docker compose exec timescaledb psql -U raguser -d postgres -c "CREATE DATABASE mlflow OWNER raguser;"
+```
+
+Exemplo mínimo de log a partir do repositório (com dependência `mlops` instalada):
+
+```python
+import os
+import mlflow
+
+mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000"))
+with mlflow.start_run():
+    mlflow.log_param("example", True)
+    mlflow.log_metric("score", 0.42)
+```
 
 Execute a importação:
 
