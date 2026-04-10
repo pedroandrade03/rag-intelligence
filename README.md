@@ -247,7 +247,8 @@ flowchart TB
 
 ### Estado Atual
 
-- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB05 (documents JSONL a partir da Gold), PB06 (ingestao de embeddings no pgvector), PB07 (hardening do storage vetorial com indices de metadata), PB08 (busca semantica local via CLI e endpoint `/search`), PB09 (API FastAPI com `/search` e `/rag/query` com streaming SSE), PB11 (frontend Next.js 16 com App Router, AI SDK, bootstrap server-side das sessoes e persistencia local em SQLite via route handlers), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, servidor MLflow opcional (`--profile mlflow`, Postgres + UI :5000), CI (ruff + pyright + pytest + eslint + next build).
+- **Implementado**: PB01 (Bronze), PB02 (Silver), PB03 (Gold), PB04 (metadados e versionamento no PostgreSQL), PB09 (API FastAPI com `/search` e `/rag/query` com streaming SSE), PB11 (frontend Next.js 16 com App Router, AI SDK, bootstrap server-side das sessoes e persistencia local em SQLite via route handlers), importer Python, transformers Silver/Gold/Documents/Embeddings, MinIO local, Docker Compose, servidor MLflow opcional (`--profile mlflow`, Postgres + UI :5000), CI (ruff + pyright + pytest + eslint + next build).
+- **Observação de modo de dados**: o pipeline atual de ML está em modo **round-level** (`round_meta_context.csv` -> `round_context.csv`). Os jobs PB05-PB08 continuam disponíveis para a trilha RAG baseada em `events.csv` (runs legados).
 - **Planejado**: PB10 (stats de armas/dano), PB12-PB14 (ML/analytics), PB15-PB17 (MLOps: logging sistemático nos pipelines além do servidor MLflow já disponível), PB18-PB20 (infra restante).
 - **Como rodar MLflow (local)**: com a stack base no ar, `docker compose --profile mlflow up -d` e abrir `http://localhost:5000`. Cliente Python (`mlops`), variável `MLFLOW_TRACKING_URI`, URI dentro do Compose e *fallback* manual do banco estão descritos em [MLflow (experimentos)](#mlflow-experimentos) (subseção de PB01, *Execução com Docker Compose*).
 
@@ -258,6 +259,9 @@ flowchart TB
 ## Objetivo
 
 Transformar cada linha de `gold/<dataset_prefix>/<run_id>/curated/events.csv` em um document versionado com `doc_id`, `text` e `metadata`, persistindo os artefatos em JSONL particionado para uso posterior pela PB06/PB07.
+
+> Importante: no modo atual de Gold para ML (`curated/round_context.csv`), o `document-build` não processa esse arquivo.  
+> Para executar PB05, use um run da Gold que ainda contenha `curated/events.csv` (trilha RAG legada).
 
 ## Pré-requisito
 
@@ -319,7 +323,7 @@ docker compose run --rm -e DOCUMENT_MAX_ROWS=25 -e DOCUMENT_RUN_ID=documents-smo
 make documents-smoke
 ```
 
-O pipeline lê o `events.csv` em streaming, gera um document por evento da Gold, tipa metadados numéricos/booleanos quando possível e registra a execução no catálogo `dataset_runs` com `stage=documents`.
+No modo legado (`events.csv`), o pipeline lê o arquivo em streaming, gera um document por evento da Gold, tipa metadados numéricos/booleanos quando possível e registra a execução no catálogo `dataset_runs` com `stage=documents`.
 
 # Implementacao PB06
 
@@ -863,7 +867,7 @@ Exemplo:
 
 ## Objetivo
 
-Limpar e padronizar os CSVs da Bronze para gerar a camada Silver versionada por run.
+Gerar um dataset Silver **focado em contexto de round** para modelagem temporal, produzindo `round_meta_context.csv`.
 
 ## Pré-requisito
 
@@ -897,108 +901,56 @@ make silver
 
 Verifique no MinIO:
 
-- CSVs tratados em `silver/<dataset_prefix>/<run_id>/cleaned/`
+- dataset Silver em `silver/<dataset_prefix>/<run_id>/cleaned/round_meta_context.csv`
 - relatório de qualidade em `silver/<dataset_prefix>/<run_id>/quality_report.json`
 
-As regras aplicadas incluem normalização de colunas, trim de texto, remoção de linhas totalmente nulas, remoção de duplicados e descarte de valores numéricos inválidos/negativos nas métricas conhecidas.
+## Detalhes do Silver (modo round-level)
 
-## Detalhes do Silver
+### Entrada
+- Prefixo de origem: `bronze/<dataset_prefix>/<run_id>/extracted/`
+- Processa apenas arquivos `.csv`
+- Prioriza arquivos de metadata de round (`round_meta`) pelo caminho tipado/nome do arquivo
 
-### Objetivo
+### Saída
+- `silver/<dataset_prefix>/<run_id>/cleaned/round_meta_context.csv`
+- `silver/<dataset_prefix>/<run_id>/quality_report.json`
 
-Transformar os CSVs extraídos da camada Bronze em arquivos CSV limpos e versionados na camada Silver.
+### Schema produzido
+`file, round_number, map, round_type, winner_side_current, ct_eq_val, t_eq_val`
 
-### Entradas
-
-- Bucket de origem: `BRONZE_BUCKET` (geralmente `bronze`)
-- Prefixo de entrada: `BRONZE_DATASET_PREFIX` e `BRONZE_SOURCE_RUN_ID`
-- Caminho esperado: `bronze/<dataset_prefix>/<run_id>/extracted/...`
-- Apenas arquivos `.csv` são processados
-- Objetos não-CSV são ignorados
-
-### Saídas
-
-- Bucket de destino: `SILVER_BUCKET` (geralmente `silver`)
-- Prefixo de saída: `silver/<silver_dataset_prefix>/<silver_run_id>/cleaned/...`
-- Mantém a estrutura relativa de subpastas do `extracted/`
-- Relatório de qualidade: `silver/<silver_dataset_prefix>/<silver_run_id>/quality_report.json`
-
-### Regras de limpeza e padronização
-
-- Normalização de cabeçalhos:
-  - remove caracteres não alfanuméricos
-  - converte nomes para minúsculas
-  - substitui separadores por `_`
-  - remove `_` extras no início/fim
-  - colunas duplicadas recebem sufixo `_2`, `_3`, ...
-  - colunas vazias viram `column`
-- Limpeza de valores de célula:
-  - trim de espaços em branco
-  - strings vazias são tratadas como `null`
-  - campos nulos são escritos como valores vazios no CSV de saída
-- Validação de métricas numéricas:
-  - colunas conhecidas de métricas numéricas são detectadas pelo nome
-  - valores inteiros permanecem inteiros
-  - valores decimais são normalizados sem zeros finais
-  - negativos, `NaN`, infinidades ou textos não numéricos são considerados inválidos
-- Remoção de linhas:
-  - linhas com todos os campos nulos são descartadas
-  - linhas com valores numéricos inválidos nas colunas métricas conhecidas são descartadas
-  - linhas duplicadas após normalização são descartadas
-
-### Colunas numéricas tratadas automaticamente
-
-As colunas numéricas são identificadas por correspondência com um conjunto de métricas padrão, incluindo:
-
-- `damage`, `health`, `armor`, `money`, `tick`, `distance`
-- `round`, `round_id`, `round_num`, `round_number`, `flash_duration`
-
-E qualquer coluna que comece ou termine com os nomes base acima, como `damage_2` ou `round_num`.
+### Regras principais
+- Normalização de colunas e aliases (por exemplo, variações de `round`, `ct_eq_val`, `t_eq_val`)
+- `winner_side_current` padronizado para `CT`/`T`
+- `round_number` deve ser inteiro positivo
+- `ct_eq_val` e `t_eq_val` devem ser numéricos e não negativos
+- Deduplicação por chave `(file, round_number)` mantendo o registro mais recente
+- Linhas inválidas ou incompletas são descartadas e contabilizadas no relatório
 
 ### Relatório de qualidade
 
-O arquivo JSON de relatório inclui:
-
-- `generated_at`: timestamp UTC da execução
-- `bronze_bucket`, `silver_bucket`
-- `bronze_source_run_id`, `silver_run_id`
-- `bronze_dataset_prefix`, `silver_dataset_prefix`
-- `files`: lista de métricas por arquivo
-- `summary`: totais agregados
-
-Cada item de arquivo contém:
-
-- `source_object`
-- `target_object`
+Campos de resumo incluem:
+- `files_processed`
 - `rows_read`
 - `rows_output`
-- `duplicate_rows`
-- `invalid_rows`
-- `all_null_rows`
 - `rows_removed`
+- `duplicate_round_keys`
+- `invalid_rows`
+- `missing_required_rows`
+- `schema_incompatible_files`
+- `source_csv_files_total`
+- `source_round_meta_files`
 
 ### Critérios de consistência por execução
 
-- Cada execução do Silver deve produzir um único relatório em `silver/<dataset_prefix>/<run_id>/quality_report.json`
-- Todos os arquivos CSV processados devem residir em `silver/<dataset_prefix>/<run_id>/cleaned/`
-- `rows_removed` deve ser igual a `duplicate_rows + invalid_rows + all_null_rows`
-- `files_processed` deve refletir o número de CSVs processados
-- A execução deve falhar se não houver arquivos CSV no prefixo Bronze esperado
-- As métricas `rows_read` e `rows_output` devem ser determinísticas para os mesmos dados de entrada e regras de transformação
+- Toda execução deve produzir `round_meta_context.csv` e `quality_report.json`
+- Deve falhar se não houver CSVs de `round_meta` na Bronze do `run_id` informado
+- A chave `(file, round_number)` não pode duplicar na saída final
 
 # Implementação PB03
 
 ## Objetivo
 
-Consolidar os CSVs da Silver em um dataset Gold único com schema canônico para análise, mantendo compatibilidade com a v1 e adicionando contexto de evento.
-
-Colunas base (compatíveis com a versão anterior):
-
-`file, round, map, weapon, hp_dmg, arm_dmg, att_pos_x, att_pos_y, vic_pos_x, vic_pos_y`
-
-Colunas extras:
-
-`event_type, source_file, tick, seconds, start_seconds, end_seconds, att_team, vic_team, att_side, vic_side, wp_type, nade, hitbox, bomb_site, is_bomb_planted, att_id, vic_id, att_rank, vic_rank, winner_team, winner_side, round_type, ct_eq_val, t_eq_val, ct_alive, t_alive, nade_land_x, nade_land_y, avg_match_rank`
+Curar o contexto de round para ML, gerando `round_context.csv` na Gold a partir do `round_meta_context.csv` da Silver.
 
 ## Pré-requisito
 
@@ -1032,29 +984,35 @@ make gold
 
 Verifique no MinIO:
 
-- dataset consolidado em `gold/<dataset_prefix>/<run_id>/curated/events.csv`
+- dataset Gold em `gold/<dataset_prefix>/<run_id>/curated/round_context.csv`
 - relatório de qualidade em `gold/<dataset_prefix>/<run_id>/quality_report.json`
 
-O pipeline aplica `event_type` por tipo de arquivo, fallback de arma (`wp` -> `nade`), enriquecimento de mapa por (`file`, `round`), mantém posição da vítima opcional e valida como numéricas finitas as posições que estiverem preenchidas.
+## Detalhes do Gold (modo round-level)
 
-## Explanação do funcionamento
+### Schema produzido
+`file, round_number, map, round_type, winner_side_current, ct_eq_val, t_eq_val, eq_diff, half, overtime_flag`
 
-A transformação Gold é organizada em duas camadas:
+### Features derivadas
+- `eq_diff = ct_eq_val - t_eq_val`
+- `half`: `H1` para rounds 1–15 (e ciclos equivalentes), `H2` para 16–30
+- `overtime_flag`: `1` quando `round_number > 30`, senão `0`
 
-**`gold.py`** — Módulo de lógica pura que contém toda a inteligência de transformação:
-- Define dataclasses (`GoldFileQualityMetrics`, `GoldTransformResult`) para tipagem e contrato dos artefatos
-- Implementa funções auxiliares: `infer_event_type()` para classificação de eventos, `has_minimum_projection_columns()` para validação de schema, `project_row()` para projeção e validação de linhas
-- Contém `run_gold_transform()` como função principal, que coordena a leitura dos CSVs da Silver, aplica validações em stream, enriquece dados via lookup de mapa, e persiste o `events.csv` + `quality_report.json` no MinIO
-- É independente de ponto de entrada — pode ser testado, importado ou invocado por diferentes orquestradores
+### Regras principais
+- Leitura exclusiva de `silver/.../cleaned/round_meta_context.csv`
+- Normalizações e validações numéricas antes da escrita
+- Deduplicação por `(file, round_number)` mantendo o registro mais recente
 
-**`gold_cli.py`** — Script de entrada (CLI) que encapsula a execução com gestão do ecossistema:
-- Carrega variáveis de ambiente e configura logging
-- Instancia `GoldSettings` a partir do `.env`
-- Chama `run_gold_transform()` com tratamento de erros (`ConfigError` retorna código 2, exceções genéricas retornam 1)
-- Registra o run completado no banco de metadados PostgreSQL via `metadata.register_run()`, permitindo rastreabilidade da linhagem (opcional; falha sem bloquear)
-- Retorna código de saída apropriado (0 = sucesso)
+### Relatório de qualidade
+O `quality_report.json` inclui:
+- `rows_read`
+- `rows_output`
+- `rows_removed`
+- `duplicate_round_keys`
+- `invalid_rows`
 
-Esse padrão separa responsabilidades: a lógica de negócio fica portável em `gold.py`, enquanto `gold_cli.py` orquestra a execução em ambiente real (Docker, job, teste).
+### Compatibilidade
+- A função `build_gold_events_key(...)` foi mantida por compatibilidade de chamadas, mas no modo atual ela aponta para `curated/round_context.csv`.
+- Jobs que exigem `curated/events.csv` (ex.: fluxo de documents da trilha RAG legada) precisam de um run Gold no formato antigo.
 
 # Epic 1 — Preparação de Dados de Partidas
 
@@ -1063,8 +1021,8 @@ Esse padrão separa responsabilidades: a lógica de negócio fica portável em `
 | ID   | User Story                                                                                            | Camada                 | Critério de Aceite                        |
 | ---- | ----------------------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------- |
 | PB01 | Como desenvolvedor, quero importar o dataset de matchmaking do Kaggle para o Data Lake                | Dados (MinIO - Bronze) | Artefato bruto e arquivos extraídos armazenados no bucket bronze |
-| PB02 | Como desenvolvedor, quero limpar e padronizar os dados de dano e combate                              | Dados (Silver)         | Dados sem valores inconsistentes          |
-| PB03 | Como desenvolvedor, quero criar uma versão tratada com colunas relevantes (arma, dano, mapa, posição) | Dados (Gold)           | Dataset estruturado para análise          |
+| PB02 | Como desenvolvedor, quero consolidar contexto de round confiável para ML                               | Dados (Silver)         | `round_meta_context.csv` válido e sem duplicidade por round |
+| PB03 | Como desenvolvedor, quero gerar contexto final por round para previsão temporal                         | Dados (Gold)           | `round_context.csv` com features derivadas (`eq_diff`, `half`, `overtime_flag`) |
 | PB04 | Como desenvolvedor, quero registrar metadados do dataset e versão no banco                            | Dados (PostgreSQL)     | Dataset versionado                        |
 
 ---
