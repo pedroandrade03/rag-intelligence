@@ -17,6 +17,7 @@ Fornecer uma UI de chat para consultar dados de partidas de CS:GO, com:
 - React 19
 - AI SDK: `ai` + `@ai-sdk/react`
 - Ollama via `ollama-ai-provider-v2`
+- OpenAI-compatible chat providers via `@ai-sdk/openai` (ex.: `llama-server`)
 - SQLite local via `better-sqlite3`
 - Tailwind CSS v4 + componentes UI locais
 - `react-grab` em desenvolvimento para debug visual
@@ -38,7 +39,7 @@ Fornecer uma UI de chat para consultar dados de partidas de CS:GO, com:
 ### Rotas internas
 
 - `src/app/api/chat/route.ts`
-  Faz o bridge entre a UI e o modelo. Persiste a mensagem do usuário, chama `streamText(...)` com Ollama e salva a resposta final do assistente.
+  Faz o bridge entre a UI e o modelo. Persiste a mensagem do usuário, chama `streamText(...)` com Ollama por padrão ou com um provider OpenAI-compatible quando `CHAT_PROVIDER=openai-compatible`, e salva a resposta final do assistente.
 - `src/app/api/sessions/route.ts`
   Lista e cria sessões.
 - `src/app/api/sessions/[id]/route.ts`
@@ -51,8 +52,8 @@ Fornecer uma UI de chat para consultar dados de partidas de CS:GO, com:
 1. A página carrega com a sessão mais recente já renderizada pelo servidor.
 2. O usuário envia a mensagem pela UI.
 3. A rota `/api/chat` decide modelo e modo RAG.
-4. Quando o RAG está habilitado, a tool `searchMatchData` consulta `POST {RAG_API_URL}/search`.
-5. O Ollama gera a resposta e o AI SDK streama os chunks para o cliente.
+4. Quando o RAG está habilitado, a tool `searchKnowledgeBase` consulta `POST {RAG_API_URL}/search/hybrid`.
+5. O provider configurado para chat gera a resposta e o AI SDK streama os chunks para o cliente.
 6. A resposta final é persistida no SQLite.
 
 ## Variáveis de ambiente
@@ -60,13 +61,45 @@ Fornecer uma UI de chat para consultar dados de partidas de CS:GO, com:
 - `RAG_API_URL`
   URL da API FastAPI usada pela busca semântica.
   Default: `http://localhost:8000`
-- `EMBEDDING_RUN_ID`
-  Run de embeddings consultado pelo endpoint de busca.
+- `CHAT_PROVIDER`
+  Provider do chat. Use `ollama` ou `openai-compatible`.
+  Default: `ollama`
+- `CHAT_PROVIDER_BASE_URL`
+  URL base do provider OpenAI-compatible.
+  Ex.: `http://127.0.0.1:8080/v1`
+- `CHAT_PROVIDER_API_KEY`
+  Token enviado ao provider OpenAI-compatible. Para `llama-server`, `local` costuma bastar.
+- `CHAT_MODEL`
+  Modelo customizado a ser exposto na UI e usado pelo backend.
+- `CHAT_DEFAULT_MODEL`
+  Override opcional do modelo default da UI.
+- `CHAT_MODEL_LABEL`
+  Nome amigável do modelo customizado na UI.
+- `CHAT_MODEL_SUPPORTS_REASONING`
+  Habilita o indicador de raciocínio para o modelo customizado.
+- `CHAT_MODEL_SUPPORTS_TOOLS`
+  Habilita o modo RAG/tool-calling para o modelo customizado.
 - `OLLAMA_BASE_URL`
   URL base do Ollama.
   Default: `http://localhost:11434`
 - `OLLAMA_MODEL`
-  Modelo default do chat quando nenhum modelo é escolhido pelo usuário.
+  Fallback do modelo default no modo Ollama.
+
+## Exemplo com llama.cpp
+
+Para usar `llama-server` como chat provider sem mexer no backend de embeddings:
+
+```bash
+CHAT_PROVIDER=openai-compatible
+CHAT_PROVIDER_BASE_URL=http://127.0.0.1:8080/v1
+CHAT_PROVIDER_API_KEY=local
+CHAT_MODEL=gemma-4
+CHAT_MODEL_LABEL="Gemma 4 GGUF"
+CHAT_MODEL_SUPPORTS_TOOLS=true
+CHAT_MODEL_SUPPORTS_REASONING=false
+```
+
+Com isso, o chat usa o `llama-server`, enquanto embeddings e demais fluxos continuam usando Ollama normalmente.
 
 ## Desenvolvimento
 

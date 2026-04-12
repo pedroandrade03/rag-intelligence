@@ -22,8 +22,8 @@ import {
   type ChatSession,
 } from "@/lib/chat-sessions";
 import {
-  DEFAULT_CHAT_MODEL,
   getChatModel,
+  type ChatModelOption,
   type RagMode,
 } from "@/lib/chat-models";
 
@@ -55,17 +55,21 @@ const ChatMessageList = dynamic(
 interface ChatAppProps {
   initialActiveChatId: string;
   initialMessages: UIMessage[];
+  initialSelectedModel: string;
   initialSessions: ChatSession[];
+  modelOptions: ChatModelOption[];
 }
 
 export function ChatApp({
   initialActiveChatId,
   initialMessages,
+  initialSelectedModel,
   initialSessions,
+  modelOptions,
 }: ChatAppProps) {
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_CHAT_MODEL.id);
+  const [selectedModel, setSelectedModel] = useState(initialSelectedModel);
   const [ragMode, setRagMode] = useState<RagMode>("auto");
   const [chatSessions, setChatSessions] = useState(initialSessions);
   const [activeChatId, setActiveChatId] = useState(initialActiveChatId);
@@ -76,7 +80,7 @@ export function ChatApp({
     new Map<string, UIMessage[]>([[initialActiveChatId, initialMessages]])
   );
 
-  const currentModel = getChatModel(selectedModel);
+  const currentModel = getChatModel(modelOptions, selectedModel);
   const effectiveRagMode = currentModel.supportsTools ? ragMode : "off";
 
   const { messages, status, sendMessage, stop } = useChat({
@@ -331,6 +335,7 @@ export function ChatApp({
       <main className="relative flex min-w-0 flex-1 flex-col">
         {!showConversation ? (
           <ChatEmptyState
+            availableModels={modelOptions}
             currentModel={currentModel}
             effectiveRagMode={effectiveRagMode}
             input={input}
@@ -355,6 +360,7 @@ export function ChatApp({
             <div className="border-t border-border/20 bg-background/80 backdrop-blur-sm">
               <div className="mx-auto max-w-3xl px-4 py-4">
                 <ChatComposer
+                  availableModels={modelOptions}
                   currentModel={currentModel}
                   effectiveRagMode={effectiveRagMode}
                   input={input}

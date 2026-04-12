@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build up up-host-ollama up-local-ollama pipeline-local-ollama demo-local-ollama down down-local-ollama logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search mlflow-up train-logreg train-histgbt train-baseline embed-docs ollama-pull otel-up otel-down otel-logs clean
+.PHONY: help install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build up up-host-ollama up-local-ollama chat-local-ready pipeline-local-ollama demo-local-ollama down down-local-ollama logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search mlflow-up train-logreg train-histgbt train-baseline embed-docs ollama-pull otel-up otel-down otel-logs clean
 
 LOCAL_RUN_DIR := /tmp/rag-intelligence
 RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)
@@ -59,11 +59,14 @@ up-local-ollama: ## Start infra in Docker and run API/frontend locally against h
 	-docker compose stop rag-api frontend
 	mkdir -p $(LOCAL_RUN_DIR)
 	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/api.pid" ] && kill -0 "$$(cat "$(LOCAL_RUN_DIR)/api.pid")" 2>/dev/null; then echo "API already running"; else set -a; [ -f ./.env ] && . ./.env || true; set +a; nohup env OLLAMA_BASE_URL=http://127.0.0.1:11434 ./.venv/bin/uvicorn rag_intelligence.api.main:app --host 0.0.0.0 --port 8000 >"$(LOCAL_RUN_DIR)/api.log" 2>&1 & echo $$! >"$(LOCAL_RUN_DIR)/api.pid"; fi'
-	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/frontend.pid" ] && kill -0 "$$(cat "$(LOCAL_RUN_DIR)/frontend.pid")" 2>/dev/null; then echo "Frontend already running"; else cd frontend; nohup env PORT=3002 RAG_API_URL=http://localhost:8000 OLLAMA_BASE_URL=http://127.0.0.1:11434 npm run dev >"$(LOCAL_RUN_DIR)/frontend.log" 2>&1 & echo $$! >"$(LOCAL_RUN_DIR)/frontend.pid"; fi'
+	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/frontend.pid" ] && kill -0 "$$(cat "$(LOCAL_RUN_DIR)/frontend.pid")" 2>/dev/null; then echo "Frontend already running"; else set -a; [ -f ./.env ] && . ./.env || true; set +a; cd frontend; nohup env PORT=3002 RAG_API_URL=http://localhost:8000 OLLAMA_BASE_URL=http://127.0.0.1:11434 npm run dev >"$(LOCAL_RUN_DIR)/frontend.log" 2>&1 & echo $$! >"$(LOCAL_RUN_DIR)/frontend.pid"; fi'
 	@echo "Frontend: http://localhost:3002"
 	@echo "API docs: http://localhost:8000/docs"
 	@echo "MLflow: http://localhost:5000"
 	@echo "MinIO: http://localhost:9001"
+
+chat-local-ready: ## Start local chat stack, embed docs, ensure lexical metadata, run smoke checks
+	./scripts/chat-local-ready.sh
 
 pipeline-local-ollama: ## Run full pipeline using Docker jobs plus local embed-docs against host Ollama
 	BRONZE_RUN_ID=$(RUN_ID) docker compose run --rm bronze-importer

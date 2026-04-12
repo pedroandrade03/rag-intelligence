@@ -84,6 +84,17 @@ def _settings() -> AppSettings:
     return AppSettings.from_env({})
 
 
+class SequentialCursor(FakeCursor):
+    def __init__(self, rows_per_execute: list[list[tuple[object, ...]]]):
+        super().__init__(rows=[])
+        self._rows_per_execute = rows_per_execute
+
+    def execute(self, sql: str, params=None) -> None:
+        super().execute(sql, params)
+        index = min(len(self.executed) - 1, len(self._rows_per_execute) - 1)
+        self.rows = self._rows_per_execute[index]
+
+
 def test_store_training_result_uses_supplied_run_id_and_test_size() -> None:
     cursor = FakeCursor()
     conn = FakeConnection(cursor)
@@ -142,3 +153,46 @@ def test_lexical_search_returns_run_metadata_and_decodes_feature_importances() -
     assert results[0].feature_importances == {"eq_diff": 0.3}
     assert results[0].created_at == "2026-04-11T12:00:00+00:00"
     assert "created_at DESC" in cursor.executed[0][0]
+
+
+def test_lexical_search_falls_back_to_metric_ranking_for_natural_language_queries() -> None:
+    fallback_rows = [
+        (
+            "train-run-123",
+            "hist_gradient_boosting",
+            0.73,
+            0.70,
+            0.71,
+            0.51,
+            0.18,
+            {"eq_diff": 0.3},
+            "hist gradient boosting roc_auc 0.73",
+            datetime(2026, 4, 11, 12, 0, tzinfo=UTC),
+        ),
+        (
+            "train-run-123",
+            "logistic_regression",
+            0.68,
+            0.65,
+            0.66,
+            0.60,
+            0.22,
+            {"eq_diff": 0.2},
+            "logistic regression roc_auc 0.68",
+            datetime(2026, 4, 11, 11, 0, tzinfo=UTC),
+        ),
+    ]
+    cursor = SequentialCursor(rows_per_execute=[[], fallback_rows])
+    conn = FakeConnection(cursor)
+
+    results = lexical_search(
+        "qual foi o modelo que mais performou",
+        settings=_settings(),
+        conn_factory=lambda _settings: conn,
+    )
+
+    assert [result.model_name for result in results] == [
+        "hist_gradient_boosting",
+        "logistic_regression",
+    ]
+    assert len(cursor.executed) == 2

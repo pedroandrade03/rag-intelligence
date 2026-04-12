@@ -1,25 +1,21 @@
 import {
   convertToModelMessages,
   streamText,
+  type UIMessage,
   tool,
-  UIMessage,
   stepCountIs,
 } from "ai";
-import { createOllama } from "ollama-ai-provider-v2";
 import { z } from "zod";
 
 import {
-  DEFAULT_CHAT_MODEL,
   getChatModel,
+  getChatRuntimeConfig,
   type RagMode,
 } from "@/lib/chat-models";
+import { getChatProvider } from "@/lib/chat-provider";
 import { upsertStoredSessionMessage } from "@/lib/chat-session-store";
 
 const RAG_API_URL = process.env.RAG_API_URL ?? "http://localhost:8000";
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL ?? DEFAULT_CHAT_MODEL.id;
-
-const ollama = createOllama({ baseURL: `${OLLAMA_BASE_URL}/api` });
 
 const SYSTEM_PROMPT = `Você é um analista especializado no pipeline de dados e modelos de ML do RAG Intelligence — uma plataforma de analytics de CS:GO.
 
@@ -152,7 +148,10 @@ export async function POST(req: Request) {
       | "regenerate-assistant-message";
   } = await req.json();
 
-  const selectedModel = getChatModel(model ?? DEFAULT_MODEL);
+  const { defaultModelId, models } = getChatRuntimeConfig();
+  const defaultModel = process.env.CHAT_DEFAULT_MODEL ?? defaultModelId;
+  const chatProvider = getChatProvider();
+  const selectedModel = getChatModel(models, model ?? defaultModel);
   const modelId = selectedModel.id;
   const mode = ragMode ?? "auto";
   const canUseTools = selectedModel.supportsTools;
@@ -182,12 +181,12 @@ export async function POST(req: Request) {
   }
 
   const result = streamText({
-    model: ollama(modelId),
+    model: chatProvider.provider(modelId),
     system: effectiveMode === "off" ? SYSTEM_PROMPT_NO_TOOLS : SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
     tools,
     toolChoice,
-    ...(selectedModel.supportsReasoning && {
+    ...(chatProvider.config.kind === "ollama" && selectedModel.supportsReasoning && {
       providerOptions: { ollama: { think: true } },
     }),
     stopWhen: stepCountIs(3),

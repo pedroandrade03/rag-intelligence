@@ -265,7 +265,18 @@ export function MessagePartRenderer({
       return <p key={key}>{part.text}</p>;
     }
 
-    return <MessageResponse key={key}>{part.text}</MessageResponse>;
+    const isStreamingAssistantText =
+      status === "streaming" && message.role === "assistant";
+
+    return (
+      <MessageResponse
+        animated={{ animation: "blurIn", duration: 220, easing: "ease-out" }}
+        isAnimating={isStreamingAssistantText}
+        key={key}
+      >
+        {part.text}
+      </MessageResponse>
+    );
   }
 
   return renderSearchToolState(key, part);

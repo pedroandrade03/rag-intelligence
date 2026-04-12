@@ -38,6 +38,7 @@ const SUGGESTIONS: Suggestion[] = [
 ];
 
 interface ChatEmptyStateProps {
+  availableModels: ChatModelOption[];
   currentModel: ChatModelOption;
   effectiveRagMode: RagMode;
   input: string;
@@ -52,6 +53,7 @@ interface ChatEmptyStateProps {
 }
 
 export function ChatEmptyState({
+  availableModels,
   currentModel,
   effectiveRagMode,
   input,
@@ -85,6 +87,7 @@ export function ChatEmptyState({
         transition={{ delay: 0.1, duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
       >
         <ChatComposer
+          availableModels={availableModels}
           currentModel={currentModel}
           effectiveRagMode={effectiveRagMode}
           input={input}

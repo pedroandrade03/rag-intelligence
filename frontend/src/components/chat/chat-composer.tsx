@@ -25,7 +25,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  CHAT_MODELS,
   RAG_MODE_CONFIG,
   RAG_MODES,
   type ChatModelOption,
@@ -36,6 +35,7 @@ import { cn } from "@/lib/utils";
 type ChatComposerVariant = "hero" | "panel";
 
 interface ChatComposerProps {
+  availableModels: ChatModelOption[];
   currentModel: ChatModelOption;
   effectiveRagMode: RagMode;
   input: string;
@@ -66,6 +66,7 @@ const textareaClasses: Record<ChatComposerVariant, string> = {
 };
 
 export const ChatComposer = memo(function ChatComposer({
+  availableModels,
   currentModel,
   effectiveRagMode,
   input,
@@ -100,7 +101,7 @@ export const ChatComposer = memo(function ChatComposer({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CHAT_MODELS.map((model) => (
+              {availableModels.map((model) => (
                 <SelectItem key={model.id} value={model.id}>
                   <span className="flex items-center gap-1.5">
                     {model.name}

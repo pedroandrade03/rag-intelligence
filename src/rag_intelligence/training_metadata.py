@@ -101,9 +101,23 @@ def _build_search_text(
     segments: list[str],
 ) -> str:
     """Assemble full-text search payload from model metadata."""
-    parts = [model_name.replace("_", " ")]
+    normalized_model_name = model_name.replace("_", " ")
+    parts = [
+        normalized_model_name,
+        f"modelo {normalized_model_name}",
+        "performance desempenho model ranking comparacao compare metrics metricas",
+        "best top winner melhor mais performou melhor modelo melhor desempenho",
+    ]
     for k, v in metrics.items():
         parts.append(f"{k} {v:.4f}")
+    if "roc_auc" in metrics:
+        parts.append(f"roc auc {metrics['roc_auc']:.4f}")
+    if "balanced_accuracy" in metrics:
+        parts.append(f"balanced accuracy {metrics['balanced_accuracy']:.4f}")
+    if "log_loss" in metrics:
+        parts.append(f"log loss {metrics['log_loss']:.4f}")
+    if "f1" in metrics:
+        parts.append(f"f1 score {metrics['f1']:.4f}")
     parts.extend(feature_columns)
     parts.extend(segments)
     return " ".join(parts)
