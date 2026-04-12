@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build up up-host-ollama up-local-ollama chat-local-ready pipeline-local-ollama demo-local-ollama down down-local-ollama logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search mlflow-up train-logreg train-histgbt train-baseline embed-docs ollama-pull otel-up otel-down otel-logs clean
+.PHONY: help setup install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build start up up-host-ollama up-local-ollama chat-local-ready pipeline-local-ollama demo-local-ollama down down-local-ollama down-all logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search mlflow-up train-logreg train-histgbt train-baseline embed-docs ollama-pull otel-up otel-down otel-logs clean
 
 LOCAL_RUN_DIR := /tmp/rag-intelligence
 RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)
@@ -9,6 +9,24 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 # Development setup
+setup: ## Full first-time setup (backend + frontend + env + models)
+	@echo "=== Checking prerequisites ==="
+	@command -v uv >/dev/null || { echo "ERROR: uv not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1; }
+	@command -v node >/dev/null || { echo "ERROR: node not found. Install Node.js 20+"; exit 1; }
+	@command -v docker >/dev/null || { echo "ERROR: docker not found."; exit 1; }
+	@command -v ollama >/dev/null || { echo "ERROR: ollama not found. Install: https://ollama.com"; exit 1; }
+	@echo "=== Installing backend (dev + ML) ==="
+	uv venv --python 3.13 .venv
+	. .venv/bin/activate && uv pip install -e ".[dev,ml]"
+	@echo "=== Installing frontend ==="
+	cd frontend && npm install
+	@if [ ! -f .env ]; then cp .env.example .env; echo "=== Created .env from .env.example — review it ==="; else echo "=== .env already exists ==="; fi
+	@echo "=== Pulling Ollama models ==="
+	ollama pull qwen2.5:7b-instruct-q4_K_M
+	ollama pull nomic-embed-text
+	@echo ""
+	@echo "Setup complete. Run 'make start' to launch."
+
 install: ## Create venv and install dependencies
 	uv venv --python 3.13 .venv
 	. .venv/bin/activate && uv pip install -e .
@@ -48,6 +66,8 @@ frontend: ## Run frontend dev server
 frontend-build: ## Build frontend for production
 	cd frontend && npm run build
 
+start: up-local-ollama ## Start local dev stack (infra in Docker, API/frontend locally)
+
 up: ## Start all services (docker compose)
 	docker compose up -d
 
@@ -82,12 +102,14 @@ demo-local-ollama: ## Start local stack and run the full pipeline against host O
 	$(MAKE) up-local-ollama
 	$(MAKE) pipeline-local-ollama RUN_ID=$(RUN_ID)
 
-down: ## Stop all services
-	docker compose down
+down: ## Stop all Docker services (all profiles)
+	docker compose --profile mlflow --profile observability --profile jobs down
 
 down-local-ollama: ## Stop local API/frontend processes started by up-local-ollama
-	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/api.pid" ]; then kill "$$(cat "$(LOCAL_RUN_DIR)/api.pid")" 2>/dev/null || true; rm -f "$(LOCAL_RUN_DIR)/api.pid"; fi'
-	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/frontend.pid" ]; then kill "$$(cat "$(LOCAL_RUN_DIR)/frontend.pid")" 2>/dev/null || true; rm -f "$(LOCAL_RUN_DIR)/frontend.pid"; fi'
+	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/api.pid" ]; then kill "$$(cat "$(LOCAL_RUN_DIR)/api.pid")" 2>/dev/null || true; rm -f "$(LOCAL_RUN_DIR)/api.pid"; fi; pids="$$(lsof -tiTCP:8000 -sTCP:LISTEN 2>/dev/null || true)"; [ -n "$$pids" ] && kill $$pids 2>/dev/null || true'
+	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/frontend.pid" ]; then kill "$$(cat "$(LOCAL_RUN_DIR)/frontend.pid")" 2>/dev/null || true; rm -f "$(LOCAL_RUN_DIR)/frontend.pid"; fi; pids="$$(lsof -tiTCP:3002 -sTCP:LISTEN 2>/dev/null || true)"; [ -n "$$pids" ] && kill $$pids 2>/dev/null || true'
+
+down-all: down-local-ollama down ## Stop local API/frontend processes and Docker services
 
 logs: ## Follow service logs
 	docker compose logs -f
