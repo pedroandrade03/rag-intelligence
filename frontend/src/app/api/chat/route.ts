@@ -16,17 +16,18 @@ import {
 import { upsertStoredSessionMessage } from "@/lib/chat-session-store";
 
 const RAG_API_URL = process.env.RAG_API_URL ?? "http://localhost:8000";
-const EMBEDDING_RUN_ID = process.env.EMBEDDING_RUN_ID ?? "20260306T025119Z";
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 const DEFAULT_MODEL = process.env.OLLAMA_MODEL ?? DEFAULT_CHAT_MODEL.id;
 
 const ollama = createOllama({ baseURL: `${OLLAMA_BASE_URL}/api` });
 
-const SYSTEM_PROMPT = `Você é um analista profissional de partidas de CS:GO / Counter-Strike.
+const SYSTEM_PROMPT = `Você é um analista especializado no pipeline de dados e modelos de ML do RAG Intelligence — uma plataforma de analytics de CS:GO.
 
 IDIOMA: Responda SEMPRE em Português Brasileiro. Nunca mude para inglês, mesmo que os dados retornados estejam em inglês. Traduza tudo.
 
-REGRA PRINCIPAL: SEMPRE use a ferramenta de busca antes de responder qualquer pergunta relacionada a CS:GO. Isso inclui perguntas sobre mapas, armas, jogadores, economia, estratégias, partidas, rounds, dano, kills — QUALQUER tema de CS:GO. Nunca responda com conhecimento geral. Sempre busque primeiro.
+REGRA PRINCIPAL: SEMPRE use a ferramenta de busca antes de responder. Você tem acesso a:
+- Documentação do pipeline (busca semântica): como funcionam as camadas Bronze, Silver, Gold, ML Training e a arquitetura geral.
+- Resultados de treinamento ML (busca lexical): métricas de modelos (ROC-AUC, F1, etc.), feature importances, segmentos por mapa/metade.
 
 COMPORTAMENTO:
 - NÃO mencione a ferramenta, não mostre JSON, não explique como a busca funciona.
@@ -34,75 +35,98 @@ COMPORTAMENTO:
 - Baseie suas respostas APENAS nos dados retornados pela busca. Nunca invente estatísticas ou use conhecimento próprio.
 - Se a busca não retornar resultados, diga brevemente que não há dados disponíveis e sugira uma pergunta alternativa.
 - Seja direto, cite números específicos, e organize as informações de forma clara.
-- A ÚNICA exceção para não usar a ferramenta é se o usuário fizer uma saudação casual (ex: "oi", "olá") ou pergunta que não tem relação com CS:GO.
+- A ÚNICA exceção para não usar a ferramenta é se o usuário fizer uma saudação casual (ex: "oi", "olá") ou pergunta sem relação com o pipeline.
 
 ESTRATÉGIA DE BUSCA:
-- SEMPRE use map_name quando o usuário mencionar um mapa específico.
-- SEMPRE use event_type="damage" para perguntas de dano, event_type="kill" para perguntas de kill.
-- Mantenha top_k entre 5 e 10. Menos resultados = respostas melhores.
-- Para ranking/comparação: faça 2 buscas separadas se necessário (ex: busca 1 por AWP, busca 2 por AK47), em vez de buscar tudo de uma vez.`;
+- Para perguntas sobre o pipeline (Bronze, Silver, Gold, arquitetura): use include_semantic=true.
+- Para perguntas sobre métricas de ML, modelos, feature importances: use include_lexical=true.
+- Para perguntas sobre modelos específicos: use model_filter (ex: "logistic_regression", "hist_gradient_boosting").
+- Na dúvida, deixe ambos habilitados (padrão).
+- Mantenha top_k entre 3 e 5. Menos resultados = respostas melhores.`;
 
-const SYSTEM_PROMPT_NO_TOOLS = `Você é um analista profissional de partidas de CS:GO / Counter-Strike.
+const SYSTEM_PROMPT_NO_TOOLS = `Você é um analista especializado no pipeline de dados e modelos de ML do RAG Intelligence.
 
 IDIOMA: Responda SEMPRE em Português Brasileiro.
 
 COMPORTAMENTO:
-- Responda com base no seu conhecimento geral sobre CS:GO.
+- Responda com base no seu conhecimento geral sobre pipelines de dados, RAG e ML.
 - Seja direto, cite números quando possível, e organize as informações de forma clara.
 - A busca no banco de dados foi desativada pelo usuário. Use apenas seu conhecimento.`;
 
-const searchMatchDataTool = tool({
+const searchKnowledgeBaseTool = tool({
   description:
-    "Search the CS:GO match event database. Use this to find information about kills, damages, weapon stats, player performance, economy, round outcomes, and any match-related data. Returns relevant match event documents ranked by similarity.",
+    "Search the knowledge base. Retrieves pipeline documentation (semantic search) and ML training results (lexical search). Always search before answering questions about the pipeline, architecture, or model performance.",
   inputSchema: z.object({
     query: z
       .string()
       .describe(
-        "The search query describing what match data to find. Be specific - e.g. 'AK-47 headshot kills on dust2' rather than just 'weapons'."
+        "The search query. Be specific - e.g. 'what does the Gold phase do' or 'logistic regression ROC-AUC'."
       ),
     top_k: z
       .number()
       .optional()
-      .default(10)
+      .default(5)
+      .describe("Number of results to retrieve (default: 5)."),
+    include_semantic: z
+      .boolean()
+      .optional()
+      .default(true)
       .describe(
-        "Number of results to retrieve (default: 8, max 10). Always use map_name and event_type filters when available — filtered results are more precise and easier to analyze."
+        "Include semantic search over pipeline documentation (default: true)."
       ),
-    event_type: z
+    include_lexical: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe(
+        "Include lexical search over ML training results (default: true)."
+      ),
+    model_filter: z
       .string()
       .optional()
       .describe(
-        "Optional filter by event type (e.g. 'kill', 'damage', 'round_end')"
-      ),
-    map_name: z
-      .string()
-      .optional()
-      .describe(
-        "Optional filter by map name (e.g. 'de_dust2', 'de_mirage')"
+        "Optional filter by ML model name (e.g. 'logistic_regression', 'hist_gradient_boosting')."
       ),
   }),
-  execute: async ({ query, top_k, event_type, map_name }) => {
+  execute: async ({
+    query,
+    top_k,
+    include_semantic,
+    include_lexical,
+    model_filter,
+  }) => {
     const body: Record<string, unknown> = {
       query,
-      embedding_run_id: EMBEDDING_RUN_ID,
-      top_k: top_k ?? 10,
+      embedding_run_id: "pipeline-docs",
+      top_k: top_k ?? 5,
+      include_semantic: include_semantic ?? true,
+      include_lexical: include_lexical ?? true,
     };
-    if (event_type) body.event_type = event_type;
-    if (map_name) body.map_name = map_name;
+    if (model_filter) body.model_filter = model_filter;
 
-    const resp = await fetch(`${RAG_API_URL}/search`, {
+    const resp = await fetch(`${RAG_API_URL}/search/hybrid`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
 
     if (!resp.ok) {
-      return { error: `Search API returned ${resp.status}`, results: [] };
+      return {
+        error: `Search API returned ${resp.status}`,
+        semantic_results: [],
+        lexical_results: [],
+      };
     }
 
     const data = await resp.json();
+    const semanticResults = data.semantic_results ?? [];
+    const lexicalResults = data.lexical_results ?? [];
+    const totalCount = semanticResults.length + lexicalResults.length;
+
     return {
-      results: data.results ?? [],
-      results_returned: data.results_returned ?? (data.results?.length ?? 0),
+      semantic_results: semanticResults,
+      lexical_results: lexicalResults,
+      results_returned: totalCount,
       retrieval_ms: data.retrieval_ms ?? 0,
       _instruction: `IMPORTANTE: Responda em Português Brasileiro. Os dados acima podem estar em inglês, mas sua resposta DEVE ser em português. Apresente os resultados diretamente, sem mencionar a ferramenta de busca.`,
     };
@@ -135,7 +159,9 @@ export async function POST(req: Request) {
   const effectiveMode = canUseTools ? mode : "off";
 
   const tools =
-    effectiveMode === "off" ? undefined : { searchMatchData: searchMatchDataTool };
+    effectiveMode === "off"
+      ? undefined
+      : { searchKnowledgeBase: searchKnowledgeBaseTool };
   const toolChoice =
     effectiveMode === "always"
       ? ("required" as const)

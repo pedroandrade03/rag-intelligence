@@ -8,12 +8,12 @@ from rag_intelligence.config import (
     Settings,
     SilverSettings,
 )
+from rag_intelligence.document_cli import main as document_main
 from rag_intelligence.documents import DocumentBuildResult
 from rag_intelligence.embedding_cli import main as embedding_main
 from rag_intelligence.embeddings import EmbeddingIngestResult
 from rag_intelligence.gold import GoldTransformResult
 from rag_intelligence.gold_cli import main as gold_main
-from rag_intelligence.document_cli import main as document_main
 from rag_intelligence.silver import SilverTransformResult
 from rag_intelligence.silver_cli import main as silver_main
 

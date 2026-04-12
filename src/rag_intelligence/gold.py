@@ -174,7 +174,7 @@ def run_gold_transform(
         with source_file.open("r", newline="", encoding="utf-8-sig", errors="replace") as csv_file:
             reader = csv.DictReader(csv_file)
             fieldnames = set(reader.fieldnames or [])
-            required_columns = set(
+            required_columns: set[str] = set(
                 (
                     "file",
                     "round_number",
@@ -189,8 +189,7 @@ def run_gold_transform(
             if missing_columns:
                 joined_missing = ", ".join(missing_columns)
                 raise ValueError(
-                    "Silver round_meta_context.csv is missing required columns: "
-                    f"{joined_missing}"
+                    f"Silver round_meta_context.csv is missing required columns: {joined_missing}"
                 )
 
             for row in reader:
@@ -266,8 +265,10 @@ def run_gold_transform(
             content_type="text/csv",
         )
 
-        artifact_prefix = build_gold_artifact_prefix(settings.gold_dataset_prefix, settings.gold_run_id)
-        quality_summary = {
+        artifact_prefix = build_gold_artifact_prefix(
+            settings.gold_dataset_prefix, settings.gold_run_id
+        )
+        quality_summary: dict[str, object] = {
             "files_processed": 1,
             "rows_read": rows_read,
             "rows_output": rows_output,

@@ -1,3 +1,14 @@
+"""Document builder for CS:GO match event aggregations.
+
+.. deprecated::
+    This module builds match-event aggregation documents for direct RAG
+    embedding. The project has pivoted to a hybrid retrieval model where
+    semantic retrieval uses pipeline documentation (``embed_docs_cli``)
+    and lexical retrieval uses ML training metadata (``training_metadata``).
+    This module is retained for backward compatibility with existing
+    embedded runs but should not be used for new work.
+"""
+
 from __future__ import annotations
 
 import csv

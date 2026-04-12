@@ -101,9 +101,7 @@ def test_main_returns_validation_error_for_broken_lineage(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "rag_intelligence.run_audit_cli.get_run_lineage",
-        lambda _settings, *, stage, run_id: (_ for _ in ()).throw(
-            ValueError("broken lineage")
-        ),
+        lambda _settings, *, stage, run_id: (_ for _ in ()).throw(ValueError("broken lineage")),
     )
 
     assert main(["--stage", "embeddings", "--run-id", "embed-run"]) == 2

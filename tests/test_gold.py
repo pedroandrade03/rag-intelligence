@@ -67,7 +67,9 @@ def test_run_gold_transform_builds_round_context_and_quality_report() -> None:
     assert result.rows_output == 4
     assert result.artifact_prefix == "csgo-matchmaking-damage/20260306T023831Z/curated/"
     assert result.quality_summary["rows_removed"] == 2
-    assert result.events_key == "csgo-matchmaking-damage/20260306T023831Z/curated/round_context.csv"
+    assert (
+        result.events_key == "csgo-matchmaking-damage/20260306T023831Z/curated/round_context.csv"
+    )
 
     round_context_key = result.events_key
     report_key = "csgo-matchmaking-damage/20260306T023831Z/quality_report.json"
@@ -115,7 +117,9 @@ def test_run_gold_transform_fails_when_round_meta_context_missing() -> None:
         existing_buckets={"silver"},
     )
 
-    with pytest.raises(FileNotFoundError, match="round_meta_context.csv was not found in Silver"):
+    with pytest.raises(
+        FileNotFoundError, match=r"round_meta_context\.csv was not found in Silver"
+    ):
         run_gold_transform(build_settings(), minio_factory=lambda **kwargs: fake_minio)
 
 
@@ -137,5 +141,7 @@ def test_run_gold_transform_fails_when_no_valid_rows() -> None:
         existing_buckets={"silver"},
     )
 
-    with pytest.raises(ValueError, match="No valid rows were produced for Gold round_context.csv"):
+    with pytest.raises(
+        ValueError, match=r"No valid rows were produced for Gold round_context\.csv"
+    ):
         run_gold_transform(build_settings(), minio_factory=lambda **kwargs: fake_minio)

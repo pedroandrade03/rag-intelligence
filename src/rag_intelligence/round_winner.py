@@ -1,5 +1,8 @@
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportReturnType=false, reportMissingImports=false
+
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,6 +11,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
+from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     balanced_accuracy_score,
@@ -27,6 +31,8 @@ EVENT_TYPE_KILL = "kill"
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _WINNER_CT_VALUES = {"CT", "COUNTERTERRORIST", "COUNTER_TERRORIST", "COUNTER-TERRORIST"}
 _WINNER_T_VALUES = {"T", "TERRORIST"}
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -86,7 +92,9 @@ def build_round_level_frame(events_df: pd.DataFrame) -> pd.DataFrame:
     if round_context_schema.issubset(events_df.columns):
         round_df = events_df.copy()
         round_df["round_number"] = _to_numeric(round_df["round_number"]).astype("Int64")
-        round_df = round_df.dropna(subset=["file", "round_number", "map", "winner_side_current"]).copy()
+        round_df = round_df.dropna(
+            subset=["file", "round_number", "map", "winner_side_current"]
+        ).copy()
         round_df["round_number"] = round_df["round_number"].astype(int)
         round_df["winner_side_norm"] = round_df["winner_side_current"].apply(normalize_winner_side)
         round_df = round_df.dropna(subset=["winner_side_norm"]).copy()
@@ -222,7 +230,14 @@ def build_supervised_frame(
     df["target_winner_side_next_code"] = grouped["winner_side_code"].shift(-1)
 
     lag_source_columns: list[str] = []
-    for candidate in ("eq_diff", "winner_side_code", "ct_eq_val", "t_eq_val", "kills_round", "total_hp_dmg"):
+    for candidate in (
+        "eq_diff",
+        "winner_side_code",
+        "ct_eq_val",
+        "t_eq_val",
+        "kills_round",
+        "total_hp_dmg",
+    ):
         if candidate in df.columns:
             lag_source_columns.append(candidate)
 
@@ -230,7 +245,9 @@ def build_supervised_frame(
         for lag in lag_steps:
             df[f"{column}_lag{lag}"] = grouped[column].shift(lag)
 
-    rolling_source_columns = [column for column in ("eq_diff", "total_hp_dmg", "kills_round") if column in df.columns]
+    rolling_source_columns = [
+        column for column in ("eq_diff", "total_hp_dmg", "kills_round") if column in df.columns
+    ]
     for column in rolling_source_columns:
         roll_name = f"{column}_rollmean{rolling_window}"
         rolled = grouped[column].shift(1).rolling(window=rolling_window, min_periods=1).mean()
@@ -253,10 +270,7 @@ def run_consistency_checks(supervised_df: pd.DataFrame) -> dict[str, int | bool]
     expected_lag1 = sorted_df.groupby("file", sort=False)["winner_side_code"].shift(1)
     lag_mask = expected_lag1.notna()
     lag_matches = bool(
-        (
-            sorted_df.loc[lag_mask, "winner_side_code_lag1"]
-            == expected_lag1.loc[lag_mask]
-        ).all()
+        (sorted_df.loc[lag_mask, "winner_side_code_lag1"] == expected_lag1.loc[lag_mask]).all()
     )
 
     return {
@@ -336,9 +350,11 @@ def _segment_metrics(
         y_group = group["y_true"]
         p_group = group["y_prob"].to_numpy()
         metrics = _classification_metrics(y_group, p_group)
-        rows.append({"segment": segment, "rows": int(len(group)), **metrics})
+        rows.append({"segment": segment, "rows": len(group), **metrics})
     if not rows:
-        return pd.DataFrame(columns=["segment", "rows", "roc_auc", "f1", "balanced_accuracy", "log_loss", "brier"])
+        return pd.DataFrame(
+            columns=["segment", "rows", "roc_auc", "f1", "balanced_accuracy", "log_loss", "brier"]
+        )
     return pd.DataFrame(rows).sort_values("rows", ascending=False).reset_index(drop=True)
 
 
@@ -348,6 +364,7 @@ def train_next_round_winner(
     test_size: float = 0.2,
     random_state: int = 42,
     min_segment_rows: int = 200,
+    model_filter: str | None = None,
 ) -> TrainingOutput:
     feature_columns, numeric_features, categorical_features = _build_feature_spec(supervised_df)
 
@@ -407,40 +424,53 @@ def train_next_round_winner(
         ),
     }
 
+    if model_filter is not None and model_filter != "baseline":
+        if model_filter not in model_builders:
+            raise ValueError(
+                f"Unknown model_filter: {model_filter!r}. "
+                f"Choose from: baseline, {', '.join(model_builders)}"
+            )
+        model_builders = {model_filter: model_builders[model_filter]}
+
     trained_models: dict[str, Pipeline] = {}
     y_probabilities: dict[str, np.ndarray] = {}
     metric_rows: list[dict[str, Any]] = []
     map_segment_metrics: dict[str, pd.DataFrame] = {}
     half_segment_metrics: dict[str, pd.DataFrame] = {}
 
-    baseline_probabilities = X_test["winner_side_norm"].map({"CT": 1.0, "T": 0.0}).fillna(0.5).to_numpy()
+    baseline_probabilities = (
+        X_test["winner_side_norm"].map({"CT": 1.0, "T": 0.0}).fillna(0.5).to_numpy()
+    )
     baseline_metrics = _classification_metrics(y_test, baseline_probabilities)
     metric_rows.append({"model": "baseline_repeat_current_winner", **baseline_metrics})
 
-    for model_name, estimator in model_builders.items():
-        pipeline = Pipeline([("prep", preprocess), ("model", estimator)])
-        pipeline.fit(X_train, y_train)
-        y_prob = pipeline.predict_proba(X_test)[:, 1]
-        y_probabilities[model_name] = y_prob
-        trained_models[model_name] = pipeline
+    if model_filter != "baseline":
+        for model_name, estimator in model_builders.items():
+            pipeline = Pipeline([("prep", preprocess), ("model", estimator)])
+            pipeline.fit(X_train, y_train)
+            y_prob = pipeline.predict_proba(X_test)[:, 1]
+            y_probabilities[model_name] = y_prob
+            trained_models[model_name] = pipeline
 
-        metrics = _classification_metrics(y_test, y_prob)
-        metric_rows.append({"model": model_name, **metrics})
+            metrics = _classification_metrics(y_test, y_prob)
+            metric_rows.append({"model": model_name, **metrics})
 
-        map_segment_metrics[model_name] = _segment_metrics(
-            y_test,
-            y_prob,
-            X_test["map"],
-            min_rows=min_segment_rows,
-        )
-        half_segment_metrics[model_name] = _segment_metrics(
-            y_test,
-            y_prob,
-            X_test["half"],
-            min_rows=min_segment_rows,
-        )
+            map_segment_metrics[model_name] = _segment_metrics(
+                y_test,
+                y_prob,
+                X_test["map"],
+                min_rows=min_segment_rows,
+            )
+            half_segment_metrics[model_name] = _segment_metrics(
+                y_test,
+                y_prob,
+                X_test["half"],
+                min_rows=min_segment_rows,
+            )
 
-    metrics_df = pd.DataFrame(metric_rows).sort_values("roc_auc", ascending=False).reset_index(drop=True)
+    metrics_df = (
+        pd.DataFrame(metric_rows).sort_values("roc_auc", ascending=False).reset_index(drop=True)
+    )
     map_segment_metrics["baseline_repeat_current_winner"] = _segment_metrics(
         y_test,
         baseline_probabilities,
@@ -473,6 +503,51 @@ def train_next_round_winner(
     )
 
 
+def extract_feature_importances(
+    training_output: TrainingOutput,
+    *,
+    n_repeats: int = 10,
+    random_state: int = 42,
+) -> dict[str, dict[str, float]]:
+    """Extract permutation-based feature importances for each trained model.
+
+    Uses ``sklearn.inspection.permutation_importance`` so results are
+    comparable across model types and aligned to the original feature columns.
+    Baseline has no fitted model — returns empty dict for that key.
+    """
+    result: dict[str, dict[str, float]] = {}
+    scoring: str | None = "roc_auc"
+    if training_output.y_test.nunique() < 2:
+        scoring = None
+        LOGGER.warning(
+            "Permutation feature importances falling back to estimator default scorer "
+            "because y_test contains a single class"
+        )
+    for model_name, pipeline in training_output.trained_models.items():
+        try:
+            perm = permutation_importance(
+                pipeline,
+                training_output.X_test,
+                training_output.y_test,
+                n_repeats=n_repeats,
+                random_state=random_state,
+                scoring=scoring,
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "Failed to compute permutation feature importances for %s: %s",
+                model_name,
+                exc,
+            )
+            result[model_name] = {}
+            continue
+        result[model_name] = dict(
+            zip(training_output.feature_columns, perm.importances_mean, strict=False)
+        )
+    result.setdefault("baseline_repeat_current_winner", {})
+    return result
+
+
 def log_training_to_mlflow(
     *,
     training_output: TrainingOutput,
@@ -488,7 +563,8 @@ def log_training_to_mlflow(
         import mlflow.sklearn
     except Exception as exc:
         raise RuntimeError(
-            "MLflow is not available. Install optional dependencies with: pip install -e \".[mlops]\""
+            "MLflow is not available. Install optional dependencies with: "
+            'pip install -e ".[mlops]"'
         ) from exc
 
     mlflow.set_tracking_uri(tracking_uri)
@@ -529,4 +605,6 @@ def log_training_to_mlflow(
                     mlflow.log_metric(metric_name, metric_value)
 
             if model_name in training_output.trained_models:
-                mlflow.sklearn.log_model(training_output.trained_models[model_name], artifact_path="model")
+                mlflow.sklearn.log_model(
+                    training_output.trained_models[model_name], artifact_path="model"
+                )

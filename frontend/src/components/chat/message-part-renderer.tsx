@@ -22,12 +22,13 @@ import { Badge } from "@/components/ui/badge";
 type MessagePart = UIMessage["parts"][number];
 
 interface SearchToolInput {
-  event_type?: string;
-  map_name?: string;
   query?: string;
+  include_semantic?: boolean;
+  include_lexical?: boolean;
+  model_filter?: string;
 }
 
-interface SearchToolResult {
+interface SemanticResult {
   event_type: string | null;
   map: string | null;
   rank: number;
@@ -36,8 +37,22 @@ interface SearchToolResult {
   text: string;
 }
 
+interface LexicalResult {
+  rank: number;
+  score: number;
+  model_name: string;
+  roc_auc: number | null;
+  f1: number | null;
+  balanced_accuracy: number | null;
+  log_loss_val: number | null;
+  brier: number | null;
+  feature_importances: Record<string, number> | null;
+  text_summary: string;
+}
+
 interface SearchToolOutput {
-  results?: SearchToolResult[];
+  semantic_results?: SemanticResult[];
+  lexical_results?: LexicalResult[];
   results_returned?: number;
   retrieval_ms?: number;
 }
@@ -63,7 +78,7 @@ function renderSearchToolState(
   key: string,
   part: MessagePart
 ) {
-  if (part.type !== "tool-searchMatchData") {
+  if (part.type !== "tool-searchKnowledgeBase") {
     return null;
   }
 
@@ -89,12 +104,11 @@ function renderSearchToolState(
       >
         <Search className="size-4 animate-pulse text-primary/60" />
         <div className="flex flex-col gap-0.5">
-          <span>Buscando no banco de dados...</span>
+          <span>Buscando na base de conhecimento...</span>
           {toolInput.query && (
             <span className="max-w-md truncate text-xs italic text-muted-foreground/60">
               &quot;{toolInput.query}&quot;
-              {toolInput.event_type && ` [${toolInput.event_type}]`}
-              {toolInput.map_name && ` [${toolInput.map_name}]`}
+              {toolInput.model_filter && ` [${toolInput.model_filter}]`}
             </span>
           )}
         </div>
@@ -107,8 +121,9 @@ function renderSearchToolState(
   }
 
   const output = part.output as SearchToolOutput;
-  const results = output.results ?? [];
-  const count = output.results_returned ?? results.length;
+  const semanticResults = output.semantic_results ?? [];
+  const lexicalResults = output.lexical_results ?? [];
+  const count = output.results_returned ?? (semanticResults.length + lexicalResults.length);
 
   if (count === 0) {
     return (
@@ -128,7 +143,7 @@ function renderSearchToolState(
         <div className="flex cursor-pointer items-center gap-2 rounded-xl border border-border/40 bg-muted/30 px-3.5 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50">
           <Database className="size-4 text-primary/60" />
           <span className="font-medium">
-            {count} documentos recuperados
+            {count} resultados recuperados
             {output.retrieval_ms ? ` em ${output.retrieval_ms}ms` : ""}
           </span>
           <ChevronDown className="ml-auto size-4 transition-transform [[data-state=open]_&]:rotate-180" />
@@ -136,36 +151,61 @@ function renderSearchToolState(
       </SourcesTrigger>
       <SourcesContent className="w-full max-w-full">
         <div className="mt-2 space-y-3">
-          {results.map((result, index) => (
+          {semanticResults.map((result: SemanticResult, index: number) => (
             <div
               className="space-y-2.5 rounded-xl border border-border/40 bg-card/60 p-4"
-              key={`${key}-${index}`}
+              key={`${key}-sem-${index}`}
             >
               <div className="flex flex-wrap items-center gap-2">
-                {result.event_type && (
-                  <Badge className="px-2 py-0.5 text-xs" variant="secondary">
-                    {result.event_type}
-                  </Badge>
-                )}
-                {result.map && (
-                  <Badge className="px-2 py-0.5 text-xs" variant="outline">
-                    {result.map}
-                  </Badge>
-                )}
-                {result.round != null && (
-                  <Badge className="px-2 py-0.5 text-xs" variant="outline">
-                    Round {result.round}
-                  </Badge>
-                )}
+                <Badge className="px-2 py-0.5 text-xs" variant="secondary">
+                  pipeline doc
+                </Badge>
                 {result.score != null && (
                   <span className="ml-auto text-xs text-muted-foreground/60">
-                    {(result.score * 100).toFixed(1)}% relevância
+                    {(result.score * 100).toFixed(1)}% relevancia
                   </span>
                 )}
               </div>
               <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
                 {result.text}
               </p>
+            </div>
+          ))}
+          {lexicalResults.map((result: LexicalResult, index: number) => (
+            <div
+              className="space-y-2.5 rounded-xl border border-border/40 bg-card/60 p-4"
+              key={`${key}-lex-${index}`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="px-2 py-0.5 text-xs" variant="secondary">
+                  ML training
+                </Badge>
+                <Badge className="px-2 py-0.5 text-xs" variant="outline">
+                  {result.model_name}
+                </Badge>
+                {result.score != null && (
+                  <span className="ml-auto text-xs text-muted-foreground/60">
+                    score {result.score.toFixed(3)}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+                {result.roc_auc != null && (
+                  <span>ROC-AUC: <strong>{result.roc_auc.toFixed(4)}</strong></span>
+                )}
+                {result.f1 != null && (
+                  <span>F1: <strong>{result.f1.toFixed(4)}</strong></span>
+                )}
+                {result.balanced_accuracy != null && (
+                  <span>Bal. Acc: <strong>{result.balanced_accuracy.toFixed(4)}</strong></span>
+                )}
+                {result.log_loss_val != null && (
+                  <span>Log Loss: <strong>{result.log_loss_val.toFixed(4)}</strong></span>
+                )}
+                {result.brier != null && (
+                  <span>Brier: <strong>{result.brier.toFixed(4)}</strong></span>
+                )}
+              </div>
             </div>
           ))}
         </div>

@@ -61,8 +61,7 @@ def test_run_silver_transform_builds_round_meta_context_and_report() -> None:
                 b"demo_2,2,de_inferno,T,eco,1800,2000\n"
             ),
             f"{bronze_prefix}/kills/esea_master_kills_demos.part1.csv": (
-                b"file,round,tick\n"
-                b"demo_1,1,100\n"
+                b"file,round,tick\ndemo_1,1,100\n"
             ),
         }
     }
@@ -84,13 +83,17 @@ def test_run_silver_transform_builds_round_meta_context_and_report() -> None:
     assert result.artifact_prefix == "csgo-matchmaking-damage/20260306T023831Z/cleaned/"
 
     silver_objects = fake_minio.objects["silver"]
-    round_meta_context_key = build_round_meta_context_key("csgo-matchmaking-damage", "20260306T023831Z")
+    round_meta_context_key = build_round_meta_context_key(
+        "csgo-matchmaking-damage", "20260306T023831Z"
+    )
     report_key = "csgo-matchmaking-damage/20260306T023831Z/quality_report.json"
     assert round_meta_context_key in silver_objects
     assert report_key in silver_objects
     assert report_key in result.uploaded_objects
 
-    rows = list(csv.DictReader(silver_objects[round_meta_context_key].decode("utf-8").splitlines()))
+    rows = list(
+        csv.DictReader(silver_objects[round_meta_context_key].decode("utf-8").splitlines())
+    )
     assert len(rows) == 3
     assert rows[0]["file"] == "demo_1"
     assert rows[0]["round_number"] == "1"
@@ -118,7 +121,9 @@ def test_run_silver_transform_fails_when_no_round_meta_csv() -> None:
         False,
         initial_objects={
             "bronze": {
-                f"{bronze_prefix}/kills/esea_master_kills_demos.part1.csv": b"file,round,tick\nx,1,1\n"
+                f"{bronze_prefix}/kills/esea_master_kills_demos.part1.csv": (
+                    b"file,round,tick\nx,1,1\n"
+                )
             }
         },
         existing_buckets={"bronze"},

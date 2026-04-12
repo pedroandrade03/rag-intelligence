@@ -42,6 +42,11 @@ dev = [
   "pytest-asyncio>=0.24",
   "httpx>=0.27",
 ]
+ml = [
+  "scikit-learn>=1.5",
+  "pandas>=2.2",
+  "numpy>=1.26",
+]
 mlops = [
   "mlflow>=2.18,<3",
 ]
@@ -54,6 +59,10 @@ document-build = "rag_intelligence.document_cli:main"
 embedding-ingest = "rag_intelligence.embedding_cli:main"
 semantic-search = "rag_intelligence.search_cli:main"
 run-audit = "rag_intelligence.run_audit_cli:main"
+train-logreg = "rag_intelligence.train_cli:main_logreg"
+train-histgbt = "rag_intelligence.train_cli:main_histgbt"
+train-baseline = "rag_intelligence.train_cli:main_baseline"
+embed-docs = "rag_intelligence.embed_docs_cli:main"
 rag-api = "rag_intelligence.api.main:run"
 
 [tool.setuptools]

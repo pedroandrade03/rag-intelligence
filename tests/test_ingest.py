@@ -14,7 +14,9 @@ class FakeKaggleApi:
     def dataset_download_files(self, dataset: str, path: str, unzip: bool, quiet: bool) -> None:
         archive_path = Path(path) / f"{dataset.rsplit('/', maxsplit=1)[-1]}.zip"
         with zipfile.ZipFile(archive_path, "w") as archive:
-            archive.writestr("esea_meta_demos.part1.csv", "file,round,map,winner_side,ct_eq_val,t_eq_val\n")
+            archive.writestr(
+                "esea_meta_demos.part1.csv", "file,round,map,winner_side,ct_eq_val,t_eq_val\n"
+            )
             archive.writestr("esea_master_kills_demos.part1.csv", "file,round,tick\n")
             archive.writestr("esea_master_dmg_demos.part1.csv", "file,round,hp_dmg\n")
             archive.writestr("maps/de_inferno.png", "png-bytes")

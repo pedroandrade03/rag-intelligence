@@ -1,3 +1,11 @@
+"""CLI for the document builder.
+
+.. deprecated::
+    Superseded by ``embed_docs_cli`` (pipeline doc embeddings) and
+    ``train_cli`` (ML training with metadata storage). Retained for
+    backward compatibility with existing embedded runs.
+"""
+
 from __future__ import annotations
 
 import logging

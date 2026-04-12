@@ -1,4 +1,7 @@
-.PHONY: help install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build up down logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search ollama-pull otel-up otel-down otel-logs clean
+.PHONY: help install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build up up-host-ollama up-local-ollama pipeline-local-ollama demo-local-ollama down down-local-ollama logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search mlflow-up train-logreg train-histgbt train-baseline embed-docs ollama-pull otel-up otel-down otel-logs clean
+
+LOCAL_RUN_DIR := /tmp/rag-intelligence
+RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)
 
 .DEFAULT_GOAL := help
 
@@ -10,9 +13,9 @@ install: ## Create venv and install dependencies
 	uv venv --python 3.13 .venv
 	. .venv/bin/activate && uv pip install -e .
 
-dev: ## Create venv and install with dev dependencies
+dev: ## Create venv and install with dev + ML dependencies
 	uv venv --python 3.13 .venv
-	. .venv/bin/activate && uv pip install -e ".[dev]"
+	. .venv/bin/activate && uv pip install -e ".[dev,ml]"
 
 test: ## Run tests (verbose)
 	. .venv/bin/activate && python -m pytest tests/ -v
@@ -48,8 +51,40 @@ frontend-build: ## Build frontend for production
 up: ## Start all services (docker compose)
 	docker compose up -d
 
+up-host-ollama: ## Start app stack using host Ollama on 127.0.0.1:11434
+	COMPOSE_OLLAMA_BASE_URL=http://host.docker.internal:11434 docker compose --profile mlflow up -d --build minio timescaledb mlflow rag-api frontend
+
+up-local-ollama: ## Start infra in Docker and run API/frontend locally against host Ollama
+	docker compose --profile mlflow up -d minio timescaledb mlflow
+	-docker compose stop rag-api frontend
+	mkdir -p $(LOCAL_RUN_DIR)
+	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/api.pid" ] && kill -0 "$$(cat "$(LOCAL_RUN_DIR)/api.pid")" 2>/dev/null; then echo "API already running"; else set -a; [ -f ./.env ] && . ./.env || true; set +a; nohup env OLLAMA_BASE_URL=http://127.0.0.1:11434 ./.venv/bin/uvicorn rag_intelligence.api.main:app --host 0.0.0.0 --port 8000 >"$(LOCAL_RUN_DIR)/api.log" 2>&1 & echo $$! >"$(LOCAL_RUN_DIR)/api.pid"; fi'
+	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/frontend.pid" ] && kill -0 "$$(cat "$(LOCAL_RUN_DIR)/frontend.pid")" 2>/dev/null; then echo "Frontend already running"; else cd frontend; nohup env PORT=3002 RAG_API_URL=http://localhost:8000 OLLAMA_BASE_URL=http://127.0.0.1:11434 npm run dev >"$(LOCAL_RUN_DIR)/frontend.log" 2>&1 & echo $$! >"$(LOCAL_RUN_DIR)/frontend.pid"; fi'
+	@echo "Frontend: http://localhost:3002"
+	@echo "API docs: http://localhost:8000/docs"
+	@echo "MLflow: http://localhost:5000"
+	@echo "MinIO: http://localhost:9001"
+
+pipeline-local-ollama: ## Run full pipeline using Docker jobs plus local embed-docs against host Ollama
+	BRONZE_RUN_ID=$(RUN_ID) docker compose run --rm bronze-importer
+	BRONZE_SOURCE_RUN_ID=$(RUN_ID) SILVER_RUN_ID=$(RUN_ID) docker compose run --rm silver-transformer
+	SILVER_SOURCE_RUN_ID=$(RUN_ID) GOLD_RUN_ID=$(RUN_ID) GOLD_SOURCE_RUN_ID=$(RUN_ID) docker compose run --rm gold-transformer
+	GOLD_SOURCE_RUN_ID=$(RUN_ID) TRAIN_RUN_ID=$(RUN_ID) docker compose --profile mlflow --profile jobs run --rm train-logreg
+	GOLD_SOURCE_RUN_ID=$(RUN_ID) TRAIN_RUN_ID=$(RUN_ID) docker compose --profile mlflow --profile jobs run --rm train-histgbt
+	GOLD_SOURCE_RUN_ID=$(RUN_ID) TRAIN_RUN_ID=$(RUN_ID) docker compose --profile mlflow --profile jobs run --rm train-baseline
+	zsh -lc 'set -a; [ -f ./.env ] && . ./.env || true; set +a; env OLLAMA_BASE_URL=http://127.0.0.1:11434 PG_HOST=localhost PG_PORT=54330 ./.venv/bin/embed-docs'
+	@echo "Pipeline completed with RUN_ID=$(RUN_ID)"
+
+demo-local-ollama: ## Start local stack and run the full pipeline against host Ollama
+	$(MAKE) up-local-ollama
+	$(MAKE) pipeline-local-ollama RUN_ID=$(RUN_ID)
+
 down: ## Stop all services
 	docker compose down
+
+down-local-ollama: ## Stop local API/frontend processes started by up-local-ollama
+	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/api.pid" ]; then kill "$$(cat "$(LOCAL_RUN_DIR)/api.pid")" 2>/dev/null || true; rm -f "$(LOCAL_RUN_DIR)/api.pid"; fi'
+	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/frontend.pid" ]; then kill "$$(cat "$(LOCAL_RUN_DIR)/frontend.pid")" 2>/dev/null || true; rm -f "$(LOCAL_RUN_DIR)/frontend.pid"; fi'
 
 logs: ## Follow service logs
 	docker compose logs -f
@@ -93,6 +128,21 @@ otel-down: ## Stop observability stack
 
 otel-logs: ## Follow observability logs
 	docker compose --profile observability logs -f otel-collector jaeger prometheus grafana
+
+mlflow-up: ## Start MLflow service
+	docker compose --profile mlflow up -d mlflow
+
+train-logreg: mlflow-up ## Train logistic regression model
+	docker compose --profile mlflow --profile jobs run --rm train-logreg
+
+train-histgbt: mlflow-up ## Train histogram gradient boosting model
+	docker compose --profile mlflow --profile jobs run --rm train-histgbt
+
+train-baseline: mlflow-up ## Train baseline model
+	docker compose --profile mlflow --profile jobs run --rm train-baseline
+
+embed-docs: ## Embed pipeline documentation into pgvector
+	docker compose --profile jobs run --rm doc-embedder
 
 ollama-pull: ## Pull Ollama models (inference + embedding)
 	docker exec -it $$(docker compose ps -q ollama) ollama pull qwen2.5:7b-instruct

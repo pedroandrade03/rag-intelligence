@@ -322,6 +322,76 @@ class EmbeddingSettings:
         )
 
 
+@dataclass(frozen=True)
+class TrainSettings:
+    minio_endpoint: str
+    minio_access_key: str
+    minio_secret_key: str
+    minio_secure: bool
+    gold_bucket: str
+    gold_dataset_prefix: str
+    gold_source_run_id: str
+    mlflow_tracking_uri: str
+    experiment_name: str
+    train_run_id: str
+    test_size: float
+    random_state: int
+    model_name: str
+
+    @classmethod
+    def from_env(cls, env: dict[str, str] | None = None) -> TrainSettings:
+        raw_env = dict(os.environ if env is None else env)
+
+        minio_endpoint = require_env(raw_env, "MINIO_ENDPOINT")
+        minio_access_key = require_env(raw_env, "MINIO_ACCESS_KEY")
+        minio_secret_key = require_env(raw_env, "MINIO_SECRET_KEY")
+
+        gold_dataset_prefix = (
+            raw_env.get("GOLD_DATASET_PREFIX", "").strip()
+            or raw_env.get("SILVER_DATASET_PREFIX", "").strip()
+            or raw_env.get("BRONZE_DATASET_PREFIX", "").strip()
+        )
+        if not gold_dataset_prefix:
+            raise ConfigError(
+                "Missing required environment variable: GOLD_DATASET_PREFIX "
+                "(or SILVER_DATASET_PREFIX / BRONZE_DATASET_PREFIX as fallback)"
+            )
+
+        gold_source_run_id = require_env(raw_env, "GOLD_SOURCE_RUN_ID")
+        test_size_raw = raw_env.get("TRAIN_TEST_SIZE", "0.2").strip() or "0.2"
+        random_state_raw = raw_env.get("TRAIN_RANDOM_STATE", "42").strip() or "42"
+        try:
+            test_size = float(test_size_raw)
+        except ValueError as err:
+            raise ConfigError(f"Invalid TRAIN_TEST_SIZE value: {test_size_raw}") from err
+        if not 0 < test_size < 1:
+            raise ConfigError("TRAIN_TEST_SIZE must be between 0 and 1")
+        try:
+            random_state = int(random_state_raw)
+        except ValueError as err:
+            raise ConfigError(f"Invalid TRAIN_RANDOM_STATE value: {random_state_raw}") from err
+
+        return cls(
+            minio_endpoint=minio_endpoint,
+            minio_access_key=minio_access_key,
+            minio_secret_key=minio_secret_key,
+            minio_secure=parse_bool(raw_env.get("MINIO_SECURE", "false")),
+            gold_bucket=raw_env.get("GOLD_BUCKET", "gold").strip() or "gold",
+            gold_dataset_prefix=gold_dataset_prefix,
+            gold_source_run_id=gold_source_run_id,
+            mlflow_tracking_uri=raw_env.get(
+                "MLFLOW_TRACKING_URI", "http://localhost:5000"
+            ).strip(),
+            experiment_name=raw_env.get(
+                "MLFLOW_EXPERIMENT_NAME", "csgo_round_next_winner"
+            ).strip(),
+            train_run_id=raw_env.get("TRAIN_RUN_ID", "").strip() or default_run_id(),
+            test_size=test_size,
+            random_state=random_state,
+            model_name=raw_env.get("TRAIN_MODEL_NAME", "").strip(),
+        )
+
+
 def require_env(env: dict[str, str], key: str) -> str:
     value = env.get(key, "").strip()
     if not value:

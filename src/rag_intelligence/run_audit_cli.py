@@ -18,7 +18,9 @@ from rag_intelligence.metadata import (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="run-audit")
-    parser.add_argument("--stage", required=True, choices=("bronze", "silver", "gold", "documents", "embeddings"))
+    parser.add_argument(
+        "--stage", required=True, choices=("bronze", "silver", "gold", "documents", "embeddings")
+    )
     parser.add_argument("--run-id", required=True, type=_non_empty_text)
     parser.add_argument("--format", dest="output_format", default="text", choices=("text", "json"))
     return parser

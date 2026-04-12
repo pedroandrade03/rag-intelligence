@@ -20,7 +20,7 @@ jobs:
         run: uv python install 3.13
 
       - name: Create venv and install dependencies
-        run: uv venv --python 3.13 && uv pip install -e ".[dev]"
+        run: uv venv --python 3.13 && uv pip install -e ".[dev,ml]"
 
       - name: Ruff lint
         run: uvx ruff check src/ tests/

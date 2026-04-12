@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 pd = pytest.importorskip("pandas")
 pytest.importorskip("sklearn")
 
-from rag_intelligence.round_winner import (
-    build_round_level_frame,
-    build_supervised_frame,
-    normalize_winner_side,
-    run_consistency_checks,
-    train_next_round_winner,
-)
+round_winner = pytest.importorskip("rag_intelligence.round_winner")
+build_round_level_frame = round_winner.build_round_level_frame
+build_supervised_frame = round_winner.build_supervised_frame
+extract_feature_importances = round_winner.extract_feature_importances
+normalize_winner_side = round_winner.normalize_winner_side
+run_consistency_checks = round_winner.run_consistency_checks
+train_next_round_winner = round_winner.train_next_round_winner
 
 
 def _synthetic_events_df():
@@ -163,3 +165,66 @@ def test_train_next_round_winner_group_split_and_metrics() -> None:
     for model_name in models:
         assert model_name in output.map_segment_metrics
         assert model_name in output.half_segment_metrics
+
+
+def test_train_next_round_winner_baseline_filter_skips_model_training() -> None:
+    events_df, _, _ = _synthetic_events_df()
+    round_df = build_round_level_frame(events_df)
+    supervised_df = build_supervised_frame(round_df)
+
+    output = train_next_round_winner(
+        supervised_df,
+        test_size=0.25,
+        random_state=42,
+        min_segment_rows=1,
+        model_filter="baseline",
+    )
+
+    assert output.metrics["model"].tolist() == ["baseline_repeat_current_winner"]
+    assert output.trained_models == {}
+    assert output.y_probabilities == {}
+
+
+def test_train_next_round_winner_rejects_unknown_model_filter() -> None:
+    events_df, _, _ = _synthetic_events_df()
+    round_df = build_round_level_frame(events_df)
+    supervised_df = build_supervised_frame(round_df)
+
+    with pytest.raises(ValueError, match="Unknown model_filter"):
+        train_next_round_winner(supervised_df, model_filter="xgboost")
+
+
+def test_extract_feature_importances_falls_back_for_single_class_y_test(monkeypatch) -> None:
+    events_df, _, _ = _synthetic_events_df()
+    round_df = build_round_level_frame(events_df)
+    supervised_df = build_supervised_frame(round_df)
+    output = train_next_round_winner(
+        supervised_df,
+        test_size=0.25,
+        random_state=42,
+        min_segment_rows=1,
+        model_filter="logistic_regression",
+    )
+    single_class_output = replace(output, y_test=output.y_test * 0)
+    seen_scoring: list[str | None] = []
+
+    class FakePermutationResult:
+        importances_mean = [0.1] * len(single_class_output.feature_columns)
+
+    def fake_permutation_importance(*args, **kwargs):
+        seen_scoring.append(kwargs.get("scoring"))
+        return FakePermutationResult()
+
+    monkeypatch.setattr(
+        "rag_intelligence.round_winner.permutation_importance",
+        fake_permutation_importance,
+    )
+
+    feature_importances = extract_feature_importances(single_class_output)
+
+    assert seen_scoring == [None]
+    assert "logistic_regression" in feature_importances
+    assert set(feature_importances["logistic_regression"]) == set(
+        single_class_output.feature_columns
+    )
+    assert feature_importances["baseline_repeat_current_winner"] == {}

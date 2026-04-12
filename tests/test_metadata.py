@@ -12,9 +12,9 @@ from rag_intelligence.metadata import (
     MetadataSettings,
     RunRecord,
     ensure_schema,
+    get_latest_run,
     get_run,
     get_run_lineage,
-    get_latest_run,
     register_run,
 )
 

@@ -40,14 +40,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     depends_on:
       timescaledb:
         condition: service_healthy
       minio:
-        condition: service_started
-      ollama:
         condition: service_started
     environment:
       PG_HOST: timescaledb
@@ -62,7 +62,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-bronze}
       MINIO_SECURE: ${MINIO_SECURE:-false}
-      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -77,6 +77,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "3002:3000"
     depends_on:
@@ -84,7 +86,7 @@ services:
     environment:
       RAG_API_URL: ${RAG_API_URL:-http://rag-api:8000}
       EMBEDDING_RUN_ID: ${EMBEDDING_RUN_ID:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
 
   # --- Observability (docker compose --profile observability up -d) ---
@@ -176,6 +178,134 @@ services:
           --default-artifact-root /mlflow/artifacts
     volumes:
       - mlflow-artifacts:/mlflow/artifacts
+
+  train-logreg:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    command: ["train-logreg"]
+    profiles:
+      - jobs
+    depends_on:
+      minio:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    environment:
+      MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      GOLD_BUCKET: ${GOLD_BUCKET:-gold}
+      GOLD_DATASET_PREFIX: ${GOLD_DATASET_PREFIX:-}
+      GOLD_SOURCE_RUN_ID: ${GOLD_SOURCE_RUN_ID:-}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      SILVER_DATASET_PREFIX: ${SILVER_DATASET_PREFIX:-}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-csgo_round_next_winner}
+      TRAIN_RUN_ID: ${TRAIN_RUN_ID:-}
+      TRAIN_MODEL_NAME: logistic_regression
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+
+  train-histgbt:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    command: ["train-histgbt"]
+    profiles:
+      - jobs
+    depends_on:
+      minio:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    environment:
+      MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      GOLD_BUCKET: ${GOLD_BUCKET:-gold}
+      GOLD_DATASET_PREFIX: ${GOLD_DATASET_PREFIX:-}
+      GOLD_SOURCE_RUN_ID: ${GOLD_SOURCE_RUN_ID:-}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      SILVER_DATASET_PREFIX: ${SILVER_DATASET_PREFIX:-}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-csgo_round_next_winner}
+      TRAIN_RUN_ID: ${TRAIN_RUN_ID:-}
+      TRAIN_MODEL_NAME: hist_gradient_boosting
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+
+  train-baseline:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    command: ["train-baseline"]
+    profiles:
+      - jobs
+    depends_on:
+      minio:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    environment:
+      MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      GOLD_BUCKET: ${GOLD_BUCKET:-gold}
+      GOLD_DATASET_PREFIX: ${GOLD_DATASET_PREFIX:-}
+      GOLD_SOURCE_RUN_ID: ${GOLD_SOURCE_RUN_ID:-}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      SILVER_DATASET_PREFIX: ${SILVER_DATASET_PREFIX:-}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-csgo_round_next_winner}
+      TRAIN_RUN_ID: ${TRAIN_RUN_ID:-}
+      TRAIN_MODEL_NAME: baseline
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+
+  doc-embedder:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    command: ["embed-docs"]
+    profiles:
+      - jobs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+      PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
+      PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
+      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
 
   bronze-importer:
     build:
@@ -298,13 +428,13 @@ services:
     command: ["embedding-ingest"]
     profiles:
       - jobs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       minio:
         condition: service_started
       timescaledb:
         condition: service_healthy
-      ollama:
-        condition: service_started
     environment:
       MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
@@ -330,7 +460,7 @@ services:
       PG_DATABASE: ${PG_DATABASE:-ragdb}
       PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
       PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
-      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -343,11 +473,11 @@ services:
     entrypoint: ["semantic-search"]
     profiles:
       - jobs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       timescaledb:
         condition: service_healthy
-      ollama:
-        condition: service_started
     environment:
       PG_HOST: timescaledb
       PG_PORT: "5432"
@@ -356,7 +486,7 @@ services:
       PG_DATABASE: ${PG_DATABASE:-ragdb}
       PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
       PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
-      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

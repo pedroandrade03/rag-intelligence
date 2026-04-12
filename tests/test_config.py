@@ -11,6 +11,7 @@ from rag_intelligence.config import (
     GoldSettings,
     Settings,
     SilverSettings,
+    TrainSettings,
     default_run_id,
 )
 from rag_intelligence.ingest import build_object_key
@@ -279,3 +280,70 @@ def test_embedding_settings_require_positive_max_documents() -> None:
 
     with pytest.raises(ConfigError, match="EMBEDDING_MAX_DOCUMENTS"):
         EmbeddingSettings.from_env(env)
+
+
+def test_train_settings_use_expected_defaults() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260308T180500Z"
+
+    settings = TrainSettings.from_env(env)
+
+    assert settings.gold_bucket == "gold"
+    assert settings.gold_dataset_prefix == "csgo-matchmaking-damage"
+    assert settings.gold_source_run_id == "20260308T180500Z"
+    assert settings.mlflow_tracking_uri == "http://localhost:5000"
+    assert settings.experiment_name == "csgo_round_next_winner"
+    assert re.fullmatch(r"\d{8}T\d{6}Z", settings.train_run_id)
+    assert settings.test_size == 0.2
+    assert settings.random_state == 42
+    assert settings.model_name == ""
+
+
+def test_train_settings_support_overrides() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["GOLD_BUCKET"] = "gold-ml"
+    env["GOLD_DATASET_PREFIX"] = "gold-prefix"
+    env["MLFLOW_TRACKING_URI"] = "http://mlflow:5000"
+    env["MLFLOW_EXPERIMENT_NAME"] = "exp-1"
+    env["TRAIN_RUN_ID"] = "20260411T123000Z"
+    env["TRAIN_TEST_SIZE"] = "0.35"
+    env["TRAIN_RANDOM_STATE"] = "7"
+    env["TRAIN_MODEL_NAME"] = "hist_gradient_boosting"
+
+    settings = TrainSettings.from_env(env)
+
+    assert settings.gold_bucket == "gold-ml"
+    assert settings.gold_dataset_prefix == "gold-prefix"
+    assert settings.experiment_name == "exp-1"
+    assert settings.train_run_id == "20260411T123000Z"
+    assert settings.test_size == 0.35
+    assert settings.random_state == 7
+    assert settings.model_name == "hist_gradient_boosting"
+
+
+def test_train_settings_require_valid_test_size() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["TRAIN_TEST_SIZE"] = "abc"
+
+    with pytest.raises(ConfigError, match="TRAIN_TEST_SIZE"):
+        TrainSettings.from_env(env)
+
+
+def test_train_settings_require_test_size_between_zero_and_one() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["TRAIN_TEST_SIZE"] = "1.2"
+
+    with pytest.raises(ConfigError, match="between 0 and 1"):
+        TrainSettings.from_env(env)
+
+
+def test_train_settings_require_valid_random_state() -> None:
+    env = base_env()
+    env["GOLD_SOURCE_RUN_ID"] = "20260308T180500Z"
+    env["TRAIN_RANDOM_STATE"] = "oops"
+
+    with pytest.raises(ConfigError, match="TRAIN_RANDOM_STATE"):
+        TrainSettings.from_env(env)

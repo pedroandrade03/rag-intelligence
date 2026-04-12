@@ -1,3 +1,12 @@
+"""Legacy training CLI with argparse interface.
+
+.. deprecated::
+    Superseded by ``train_cli`` which provides separate entry points
+    per model (``train-logreg``, ``train-histgbt``, ``train-baseline``)
+    with environment-based configuration via ``TrainSettings``.
+    This module is retained for backward compatibility.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +28,6 @@ from rag_intelligence.round_winner import (
     train_next_round_winner,
 )
 
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -36,7 +44,8 @@ def load_events_from_minio() -> pd.DataFrame:
     run_id = os.getenv("GOLD_SOURCE_RUN_ID") or os.getenv("GOLD_RUN_ID")
     if not dataset_prefix or not run_id:
         raise ValueError(
-            "Missing dataset prefix or run id. Set GOLD_DATASET_PREFIX (or SILVER/BRONZE fallback) "
+            "Missing dataset prefix or run id. "
+            "Set GOLD_DATASET_PREFIX (or SILVER/BRONZE fallback) "
             "and GOLD_SOURCE_RUN_ID (or GOLD_RUN_ID)."
         )
 
@@ -83,7 +92,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s"
+    )
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -119,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
             random_state=args.random_state,
             min_segment_rows=args.segment_min_rows,
         )
-        LOGGER.info("Train rows=%s Test rows=%s", training_output.train_rows, training_output.test_rows)
+        LOGGER.info(
+            "Train rows=%s Test rows=%s", training_output.train_rows, training_output.test_rows
+        )
         LOGGER.info("Model metrics:\n%s", training_output.metrics.to_string(index=False))
 
         best_model = training_output.metrics.iloc[0]["model"]
