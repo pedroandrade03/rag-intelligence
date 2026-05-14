@@ -53,18 +53,62 @@ COMPORTAMENTO:
 - A busca no banco de dados foi desativada pelo usuário. Use apenas seu conhecimento.`;
 
 type SemanticToolResult = {
+  rank?: number;
+  score?: number | null;
   text?: string;
-  source_file?: string;
-  metadata?: { pipeline_phase?: string; header_path?: string };
+  source_file?: string | null;
+  metadata?: { pipeline_phase?: string | null; header_path?: string | null };
 };
 
 type LexicalToolResult = {
-  model_name?: string;
-  roc_auc?: number;
-  f1?: number;
-  balanced_accuracy?: number;
+  rank?: number;
+  score?: number | null;
+  run_id?: string | null;
+  created_at?: string | null;
+  model_name?: string | null;
+  roc_auc?: number | null;
+  f1?: number | null;
+  balanced_accuracy?: number | null;
+  log_loss_val?: number | null;
+  brier?: number | null;
   text_summary?: string;
 };
+
+function truncateText(value: string | undefined, maxLength = 700): string {
+  if (!value) {
+    return "";
+  }
+  return value.length > maxLength ? `${value.slice(0, maxLength).trimEnd()}...` : value;
+}
+
+function compactSemanticResults(results: SemanticToolResult[], limit = 3) {
+  return results.slice(0, limit).map((result, index) => ({
+    rank: result.rank ?? index + 1,
+    score: result.score ?? null,
+    text: truncateText(result.text),
+    source_file: result.source_file ?? null,
+    metadata: {
+      pipeline_phase: result.metadata?.pipeline_phase ?? null,
+      header_path: result.metadata?.header_path ?? null,
+    },
+  }));
+}
+
+function compactLexicalResults(results: LexicalToolResult[], limit = 3) {
+  return results.slice(0, limit).map((result, index) => ({
+    rank: result.rank ?? index + 1,
+    score: result.score ?? null,
+    run_id: result.run_id ?? null,
+    created_at: result.created_at ?? null,
+    model_name: result.model_name ?? null,
+    roc_auc: result.roc_auc ?? null,
+    f1: result.f1 ?? null,
+    balanced_accuracy: result.balanced_accuracy ?? null,
+    log_loss_val: result.log_loss_val ?? null,
+    brier: result.brier ?? null,
+    text_summary: truncateText(result.text_summary, 500),
+  }));
+}
 
 async function runHybridSearch(body: Record<string, unknown>) {
   const resp = await fetch(`${RAG_API_URL}/search/hybrid`, {
@@ -114,10 +158,10 @@ const searchPipelineDocsTool = tool({
       include_lexical: false,
       pipeline_phase,
     });
-    const semanticResults = data.semantic_results ?? [];
+    const semanticResults = compactSemanticResults(data.semantic_results ?? []);
 
     return {
-      answer_context: semanticResults.slice(0, 5).map((result: SemanticToolResult) => ({
+      answer_context: semanticResults.map((result: SemanticToolResult) => ({
         type: "pipeline_doc",
         phase: result.metadata?.pipeline_phase ?? null,
         source: result.source_file ?? null,
@@ -154,10 +198,10 @@ const searchTrainingMetricsTool = tool({
       include_lexical: true,
       model_filter,
     });
-    const lexicalResults = data.lexical_results ?? [];
+    const lexicalResults = compactLexicalResults(data.lexical_results ?? []);
 
     return {
-      answer_context: lexicalResults.slice(0, 5).map((result: LexicalToolResult) => ({
+      answer_context: lexicalResults.map((result: LexicalToolResult) => ({
         type: "ml_training",
         model_name: result.model_name ?? null,
         roc_auc: result.roc_auc ?? null,
@@ -200,9 +244,15 @@ const getLatestTrainingRunTool = tool({
     }
 
     const latestTraining = await resp.json();
+    const models = compactLexicalResults(latestTraining?.models ?? [], 5);
     return {
-      latest_training_run: latestTraining,
-      results_returned: latestTraining?.count ?? 0,
+      latest_training_run: {
+        run_id: latestTraining?.run_id ?? null,
+        created_at: latestTraining?.created_at ?? null,
+        models,
+        count: models.length,
+      },
+      results_returned: models.length,
       _instruction:
         "IMPORTANTE: Responda em Português Brasileiro. Apresente run_id, data e métricas dos modelos de forma direta, sem mencionar a ferramenta.",
     };
