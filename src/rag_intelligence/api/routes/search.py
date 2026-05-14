@@ -29,16 +29,70 @@ class SearchBody(BaseModel):
 
 
 class HybridSearchBody(BaseModel):
+    query: str = Field(examples=["o que acontece na silver?"])
+    embedding_run_id: str | None = Field(default="pipeline-docs", examples=["pipeline-docs"])
+    top_k: int = Field(default=5, gt=0, examples=[3])
+    include_semantic: bool = Field(default=True, examples=[True])
+    include_lexical: bool = Field(default=True, examples=[False])
+    model_filter: str | None = Field(default=None, examples=[None])
+    pipeline_phase: str | None = Field(default=None, examples=["silver"])
+
+
+class SemanticResultBody(BaseModel):
+    rank: int
+    score: float | None = None
+    doc_id: str
+    text: str
+    event_type: str | None = None
+    map: str | None = None
+    file: str | None = None
+    round: int | str | None = None
+    source_file: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class LexicalResultBody(BaseModel):
+    rank: int
+    score: float
+    run_id: str
+    model_name: str
+    roc_auc: float | None = None
+    f1: float | None = None
+    balanced_accuracy: float | None = None
+    log_loss_val: float | None = None
+    brier: float | None = None
+    feature_importances: dict | None = None
+    text_summary: str
+    created_at: str | None = None
+
+
+class SearchResponseBody(BaseModel):
     query: str
-    embedding_run_id: str | None = Field(default="pipeline-docs")
-    top_k: int = Field(default=5, gt=0)
-    include_semantic: bool = True
-    include_lexical: bool = True
-    model_filter: str | None = None
-    pipeline_phase: str | None = None
+    embedding_run_id: str
+    top_k: int
+    filters: dict
+    results_returned: int
+    retrieval_ms: int
+    results: list[SemanticResultBody]
 
 
-@router.post("/search")
+class HybridSearchResponseBody(BaseModel):
+    semantic_results: list[SemanticResultBody]
+    lexical_results: list[LexicalResultBody]
+    retrieval_ms: int
+
+
+HYBRID_SEARCH_EXAMPLE = {
+    "query": "o que acontece na silver?",
+    "embedding_run_id": "pipeline-docs",
+    "top_k": 3,
+    "include_semantic": True,
+    "include_lexical": False,
+    "pipeline_phase": "silver",
+}
+
+
+@router.post("/search", response_model=SearchResponseBody)
 async def search(body: SearchBody, settings: SettingsDep, registry: RegistryDep):
     run_id = body.embedding_run_id or settings.default_embedding_run_id
     if not run_id:
@@ -68,7 +122,19 @@ async def search(body: SearchBody, settings: SettingsDep, registry: RegistryDep)
     return response.to_dict()
 
 
-@router.post("/search/hybrid")
+@router.post(
+    "/search/hybrid",
+    response_model=HybridSearchResponseBody,
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "example": HYBRID_SEARCH_EXAMPLE,
+                }
+            }
+        }
+    },
+)
 async def hybrid_search(body: HybridSearchBody, settings: SettingsDep, registry: RegistryDep):
     t0 = perf_counter()
     semantic_results: list[dict] = []
