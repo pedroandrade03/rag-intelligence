@@ -18,14 +18,14 @@ router = APIRouter()
 
 
 class SearchBody(BaseModel):
-    query: str
-    embedding_run_id: str | None = None
-    top_k: int = Field(default=5, gt=0)
-    event_type: str | None = None
-    map_name: str | None = None
-    file_name: str | None = None
-    round_number: int | None = None
-    pipeline_phase: str | None = None
+    query: str = Field(examples=["o que acontece na silver?"])
+    embedding_run_id: str | None = Field(default=None, examples=["pipeline-docs"])
+    top_k: int = Field(default=5, gt=0, examples=[3])
+    event_type: str | None = Field(default=None, examples=[None])
+    map_name: str | None = Field(default=None, examples=[None])
+    file_name: str | None = Field(default=None, examples=[None])
+    round_number: int | None = Field(default=None, examples=[None])
+    pipeline_phase: str | None = Field(default=None, examples=["silver"])
 
 
 class HybridSearchBody(BaseModel):
@@ -82,6 +82,14 @@ class HybridSearchResponseBody(BaseModel):
     retrieval_ms: int
 
 
+SEARCH_EXAMPLE = {
+    "query": "o que acontece na silver?",
+    "embedding_run_id": "pipeline-docs",
+    "top_k": 3,
+    "pipeline_phase": "silver",
+}
+
+
 HYBRID_SEARCH_EXAMPLE = {
     "query": "arquitetura ml training logistic regression roc auc",
     "embedding_run_id": "pipeline-docs",
@@ -92,7 +100,19 @@ HYBRID_SEARCH_EXAMPLE = {
 }
 
 
-@router.post("/search", response_model=SearchResponseBody)
+@router.post(
+    "/search",
+    response_model=SearchResponseBody,
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "example": SEARCH_EXAMPLE,
+                }
+            }
+        }
+    },
+)
 async def search(body: SearchBody, settings: SettingsDep, registry: RegistryDep):
     run_id = body.embedding_run_id or settings.default_embedding_run_id
     if not run_id:
