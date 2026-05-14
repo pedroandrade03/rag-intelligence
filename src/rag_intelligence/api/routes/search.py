@@ -83,12 +83,12 @@ class HybridSearchResponseBody(BaseModel):
 
 
 HYBRID_SEARCH_EXAMPLE = {
-    "query": "o que acontece na silver?",
+    "query": "arquitetura ml training logistic regression roc auc",
     "embedding_run_id": "pipeline-docs",
     "top_k": 3,
     "include_semantic": True,
-    "include_lexical": False,
-    "pipeline_phase": "silver",
+    "include_lexical": True,
+    "pipeline_phase": None,
 }
 
 
