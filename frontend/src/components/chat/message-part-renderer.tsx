@@ -26,6 +26,7 @@ interface SearchToolInput {
   include_semantic?: boolean;
   include_lexical?: boolean;
   model_filter?: string;
+  pipeline_phase?: string;
 }
 
 interface LatestTrainingToolInput {
@@ -90,8 +91,10 @@ function renderSearchToolState(
   key: string,
   part: MessagePart
 ) {
-  const isSearchTool = part.type === "tool-searchKnowledgeBase";
+  const isPipelineDocsTool = part.type === "tool-searchPipelineDocs";
+  const isTrainingMetricsTool = part.type === "tool-searchTrainingMetrics";
   const isLatestTrainingTool = part.type === "tool-getLatestTrainingRun";
+  const isSearchTool = isPipelineDocsTool || isTrainingMetricsTool;
 
   if (!isSearchTool && !isLatestTrainingTool) {
     return null;
@@ -130,6 +133,7 @@ function renderSearchToolState(
           {isSearchTool && searchInput.query && (
             <span className="max-w-md truncate text-xs italic text-muted-foreground/60">
               &quot;{searchInput.query}&quot;
+              {searchInput.pipeline_phase && ` [${searchInput.pipeline_phase}]`}
               {searchInput.model_filter && ` [${searchInput.model_filter}]`}
             </span>
           )}

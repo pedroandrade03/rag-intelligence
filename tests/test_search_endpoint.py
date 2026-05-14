@@ -121,6 +121,7 @@ def test_search_passes_filters():
                 "event_type": "kill",
                 "map_name": "de_dust2",
                 "top_k": 3,
+                "pipeline_phase": "silver",
             },
         )
 
@@ -128,6 +129,7 @@ def test_search_passes_filters():
     request = mock_fn.call_args[0][0]
     assert request.event_type == "kill"
     assert request.map_name == "de_dust2"
+    assert request.pipeline_phase == "silver"
     assert request.top_k == 3
 
 
@@ -183,6 +185,24 @@ def test_hybrid_search_uses_pipeline_docs_default_run_id():
     assert resp.status_code == 200
     request = mock_fn.call_args[0][0]
     assert request.embedding_run_id == "pipeline-docs"
+
+
+def test_hybrid_search_passes_pipeline_phase_to_semantic_search():
+    app = create_app(settings=_settings())
+    with _patch_search([]) as mock_fn, TestClient(app) as client:
+        resp = client.post(
+            "/search/hybrid",
+            json={
+                "query": "o que acontece na silver",
+                "include_lexical": False,
+                "pipeline_phase": "silver",
+            },
+        )
+
+    assert resp.status_code == 200
+    request = mock_fn.call_args[0][0]
+    assert request.document_tier == "pipeline_doc"
+    assert request.pipeline_phase == "silver"
 
 
 def test_hybrid_search_passes_model_filter_to_lexical_search():

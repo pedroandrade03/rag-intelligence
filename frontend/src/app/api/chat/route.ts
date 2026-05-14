@@ -22,7 +22,8 @@ const SYSTEM_PROMPT = `Você é um analista especializado no pipeline de dados e
 IDIOMA: Responda SEMPRE em Português Brasileiro. Nunca mude para inglês, mesmo que os dados retornados estejam em inglês. Traduza tudo.
 
 REGRA PRINCIPAL: SEMPRE use uma ferramenta antes de responder perguntas sobre o projeto. Você tem acesso a:
-- searchKnowledgeBase: documentação do pipeline (busca semântica) e resultados de treinamento ML (busca lexical).
+- searchPipelineDocs: documentação do pipeline, com filtro real por etapa Bronze/Silver/Gold/ML/arquitetura.
+- searchTrainingMetrics: resultados de treinamento ML, métricas, feature importances e comparação de modelos.
 - getLatestTrainingRun: último treinamento executado, com run_id, data e métricas dos modelos.
 
 COMPORTAMENTO:
@@ -36,10 +37,10 @@ COMPORTAMENTO:
 
 ESTRATÉGIA DE FERRAMENTAS:
 - Para "último treinamento", "treinamento mais recente" ou perguntas equivalentes: use getLatestTrainingRun.
-- Para perguntas sobre o pipeline (Bronze, Silver, Gold, arquitetura): use searchKnowledgeBase com include_semantic=true.
-- Para perguntas sobre métricas de ML, modelos, feature importances: use searchKnowledgeBase com include_lexical=true.
+- Para perguntas sobre o pipeline (Bronze, Silver, Gold, arquitetura): use searchPipelineDocs. Se a pergunta mencionar uma etapa, preencha pipeline_phase.
+- Para perguntas sobre métricas de ML, modelos, feature importances: use searchTrainingMetrics.
 - Para perguntas sobre modelos específicos: use model_filter (ex: "logistic_regression", "hist_gradient_boosting").
-- Na dúvida, use searchKnowledgeBase com ambos habilitados (padrão).
+- Na dúvida sobre documentação, use searchPipelineDocs; na dúvida sobre desempenho de modelos, use searchTrainingMetrics.
 - Mantenha top_k entre 3 e 5. Menos resultados = respostas melhores.`;
 
 const SYSTEM_PROMPT_NO_TOOLS = `Você é um analista especializado no pipeline de dados e modelos de ML do RAG Intelligence.
@@ -51,114 +52,125 @@ COMPORTAMENTO:
 - Seja direto, cite números quando possível, e organize as informações de forma clara.
 - A busca no banco de dados foi desativada pelo usuário. Use apenas seu conhecimento.`;
 
-const searchKnowledgeBaseTool = tool({
+type SemanticToolResult = {
+  text?: string;
+  source_file?: string;
+  metadata?: { pipeline_phase?: string; header_path?: string };
+};
+
+type LexicalToolResult = {
+  model_name?: string;
+  roc_auc?: number;
+  f1?: number;
+  balanced_accuracy?: number;
+  text_summary?: string;
+};
+
+async function runHybridSearch(body: Record<string, unknown>) {
+  const resp = await fetch(`${RAG_API_URL}/search/hybrid`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    return {
+      error: `Search API returned ${resp.status}`,
+      semantic_results: [],
+      lexical_results: [],
+      results_returned: 0,
+      retrieval_ms: 0,
+    };
+  }
+
+  const data = await resp.json();
+  const semanticResults = data.semantic_results ?? [];
+  const lexicalResults = data.lexical_results ?? [];
+  return {
+    ...data,
+    semantic_results: semanticResults,
+    lexical_results: lexicalResults,
+    results_returned: semanticResults.length + lexicalResults.length,
+  };
+}
+
+const searchPipelineDocsTool = tool({
   description:
-    "Search the knowledge base. Retrieves pipeline documentation (semantic search) and ML training results (lexical search). Always search before answering questions about the pipeline, architecture, or model performance.",
+    "Search only the pipeline documentation using semantic retrieval. Use this for questions about Bronze, Silver, Gold, ML training pipeline, architecture, RAG, chunking, pgvector, or system design.",
   inputSchema: z.object({
-    query: z
-      .string()
-      .describe(
-        "The search query. Be specific - e.g. 'what does the Gold phase do' or 'logistic regression ROC-AUC'.",
-      ),
-    top_k: z
-      .number()
+    query: z.string().describe("The documentation question to search for."),
+    top_k: z.number().optional().default(5).describe("Number of doc chunks to retrieve."),
+    pipeline_phase: z
+      .enum(["bronze", "silver", "gold", "ml-training", "architecture"])
       .optional()
-      .default(5)
-      .describe("Number of results to retrieve (default: 5)."),
-    include_semantic: z
-      .boolean()
-      .optional()
-      .default(true)
-      .describe(
-        "Include semantic search over pipeline documentation (default: true).",
-      ),
-    include_lexical: z
-      .boolean()
-      .optional()
-      .default(true)
-      .describe(
-        "Include lexical search over ML training results (default: true).",
-      ),
-    model_filter: z
-      .string()
-      .optional()
-      .describe(
-        "Optional filter by ML model name (e.g. 'logistic_regression', 'hist_gradient_boosting').",
-      ),
+      .describe("Optional exact pipeline phase filter when the question names a phase."),
   }),
-  execute: async ({
-    query,
-    top_k,
-    include_semantic,
-    include_lexical,
-    model_filter,
-  }) => {
-    const body: Record<string, unknown> = {
+  execute: async ({ query, top_k, pipeline_phase }) => {
+    const data = await runHybridSearch({
       query,
       embedding_run_id: "pipeline-docs",
       top_k: top_k ?? 5,
-      include_semantic: include_semantic ?? true,
-      include_lexical: include_lexical ?? true,
-    };
-    if (model_filter) body.model_filter = model_filter;
-
-    const resp = await fetch(`${RAG_API_URL}/search/hybrid`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      include_semantic: true,
+      include_lexical: false,
+      pipeline_phase,
     });
-
-    if (!resp.ok) {
-      return {
-        error: `Search API returned ${resp.status}`,
-        semantic_results: [],
-        lexical_results: [],
-      };
-    }
-
-    const data = await resp.json();
     const semanticResults = data.semantic_results ?? [];
-    const lexicalResults = data.lexical_results ?? [];
-    const totalCount = semanticResults.length + lexicalResults.length;
-    const answerContext = [
-      ...semanticResults.slice(0, 5).map(
-        (result: {
-          text?: string;
-          source_file?: string;
-          metadata?: { pipeline_phase?: string; header_path?: string };
-        }) => ({
-          type: "pipeline_doc",
-          phase: result.metadata?.pipeline_phase ?? null,
-          source: result.source_file ?? null,
-          header: result.metadata?.header_path ?? null,
-          text: result.text ?? "",
-        }),
-      ),
-      ...lexicalResults.slice(0, 5).map(
-        (result: {
-          model_name?: string;
-          roc_auc?: number;
-          f1?: number;
-          balanced_accuracy?: number;
-          text_summary?: string;
-        }) => ({
-          type: "ml_training",
-          model_name: result.model_name ?? null,
-          roc_auc: result.roc_auc ?? null,
-          f1: result.f1 ?? null,
-          balanced_accuracy: result.balanced_accuracy ?? null,
-          text: result.text_summary ?? "",
-        }),
-      ),
-    ];
 
     return {
-      answer_context: answerContext,
+      answer_context: semanticResults.slice(0, 5).map((result: SemanticToolResult) => ({
+        type: "pipeline_doc",
+        phase: result.metadata?.pipeline_phase ?? null,
+        source: result.source_file ?? null,
+        header: result.metadata?.header_path ?? null,
+        text: result.text ?? "",
+      })),
       semantic_results: semanticResults,
-      lexical_results: lexicalResults,
-      results_returned: totalCount,
+      lexical_results: [],
+      results_returned: semanticResults.length,
       retrieval_ms: data.retrieval_ms ?? 0,
-      _instruction: `IMPORTANTE: Responda em Português Brasileiro. Os dados acima podem estar em inglês, mas sua resposta DEVE ser em português. Apresente os resultados diretamente, sem mencionar a ferramenta de busca.`,
+      _instruction:
+        "IMPORTANTE: Responda em Português Brasileiro usando os trechos de documentação retornados. Se pipeline_phase foi usado, os resultados já estão filtrados para essa etapa.",
+    };
+  },
+});
+
+const searchTrainingMetricsTool = tool({
+  description:
+    "Search only ML training metadata and metrics using PostgreSQL full-text search. Use this for ROC-AUC, F1, best model, feature importances, model comparison, or training performance questions.",
+  inputSchema: z.object({
+    query: z.string().describe("The ML metric/performance question to search for."),
+    top_k: z.number().optional().default(5).describe("Number of training rows to retrieve."),
+    model_filter: z
+      .string()
+      .optional()
+      .describe("Optional model_name filter, e.g. logistic_regression or hist_gradient_boosting."),
+  }),
+  execute: async ({ query, top_k, model_filter }) => {
+    const data = await runHybridSearch({
+      query,
+      embedding_run_id: "pipeline-docs",
+      top_k: top_k ?? 5,
+      include_semantic: false,
+      include_lexical: true,
+      model_filter,
+    });
+    const lexicalResults = data.lexical_results ?? [];
+
+    return {
+      answer_context: lexicalResults.slice(0, 5).map((result: LexicalToolResult) => ({
+        type: "ml_training",
+        model_name: result.model_name ?? null,
+        roc_auc: result.roc_auc ?? null,
+        f1: result.f1 ?? null,
+        balanced_accuracy: result.balanced_accuracy ?? null,
+        text: result.text_summary ?? "",
+      })),
+      semantic_results: [],
+      lexical_results: lexicalResults,
+      results_returned: lexicalResults.length,
+      retrieval_ms: data.retrieval_ms ?? 0,
+      _instruction:
+        "IMPORTANTE: Responda em Português Brasileiro usando somente as métricas retornadas.",
     };
   },
 });
@@ -229,7 +241,8 @@ export async function POST(req: Request) {
     effectiveMode === "off"
       ? undefined
       : {
-          searchKnowledgeBase: searchKnowledgeBaseTool,
+          searchPipelineDocs: searchPipelineDocsTool,
+          searchTrainingMetrics: searchTrainingMetricsTool,
           getLatestTrainingRun: getLatestTrainingRunTool,
         };
   const toolChoice =

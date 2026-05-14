@@ -25,6 +25,7 @@ class SearchBody(BaseModel):
     map_name: str | None = None
     file_name: str | None = None
     round_number: int | None = None
+    pipeline_phase: str | None = None
 
 
 class HybridSearchBody(BaseModel):
@@ -34,6 +35,7 @@ class HybridSearchBody(BaseModel):
     include_semantic: bool = True
     include_lexical: bool = True
     model_filter: str | None = None
+    pipeline_phase: str | None = None
 
 
 @router.post("/search")
@@ -56,6 +58,7 @@ async def search(body: SearchBody, settings: SettingsDep, registry: RegistryDep)
         map_name=body.map_name,
         file_name=body.file_name,
         round_number=body.round_number,
+        pipeline_phase=body.pipeline_phase,
     )
     response = search_events(
         request,
@@ -78,6 +81,8 @@ async def hybrid_search(body: HybridSearchBody, settings: SettingsDep, registry:
                 query=body.query,
                 embedding_run_id=run_id,
                 top_k=body.top_k,
+                document_tier="pipeline_doc",
+                pipeline_phase=body.pipeline_phase,
             )
             response = search_events(
                 request,
