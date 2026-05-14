@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -15,17 +17,70 @@ root_router = APIRouter()
 
 
 class RAGBody(BaseModel):
-    query: str
-    embedding_run_id: str | None = None
-    top_k: int = Field(default=10, gt=0)
-    event_type: str | None = None
-    map_name: str | None = None
-    stream: bool = True
-    llm_key: str | None = None
+    query: str = Field(
+        examples=["o que acontece na silver?"],
+        description="Question to answer using retrieved context.",
+    )
+    embedding_run_id: str | None = Field(
+        default=None,
+        examples=["pipeline-docs"],
+        description="Embedding run to search. Use pipeline-docs for project documentation.",
+    )
+    top_k: int = Field(default=3, gt=0, examples=[3])
+    event_type: str | None = Field(default=None, examples=[None])
+    map_name: str | None = Field(default=None, examples=[None])
+    stream: bool = Field(
+        default=False,
+        description="Use false in Swagger/JSON clients. true returns text/event-stream.",
+        examples=[False],
+    )
+    llm_key: str | None = Field(default=None, examples=[None])
 
 
-@router.post("/query")
-@root_router.post("/query")
+RAG_EXAMPLE: dict[str, Any] = {
+    "query": "o que acontece na silver?",
+    "embedding_run_id": "pipeline-docs",
+    "top_k": 3,
+    "event_type": None,
+    "map_name": None,
+    "stream": False,
+    "llm_key": None,
+}
+
+RAG_JSON_RESPONSE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "description": "RAG answer. With stream=false this is JSON; with stream=true this is SSE.",
+        "content": {
+            "application/json": {
+                "example": {
+                    "query": "o que acontece na silver?",
+                    "answer": "A Silver limpa e normaliza os CSVs da Bronze...",
+                    "sources": [],
+                    "retrieval_ms": 25,
+                    "generation_ms": 1200,
+                }
+            },
+            "text/event-stream": {
+                "example": "event: sources\\ndata: {...}\\n\\nevent: chunk\\ndata: {...}\\n\\n"
+            },
+        },
+    }
+}
+
+
+RAG_OPENAPI_EXTRA = {
+    "requestBody": {
+        "content": {
+            "application/json": {
+                "example": RAG_EXAMPLE,
+            }
+        }
+    }
+}
+
+
+@router.post("/query", responses=RAG_JSON_RESPONSE, openapi_extra=RAG_OPENAPI_EXTRA)
+@root_router.post("/query", responses=RAG_JSON_RESPONSE, openapi_extra=RAG_OPENAPI_EXTRA)
 async def query(body: RAGBody, settings: SettingsDep, registry: RegistryDep):
     run_id = body.embedding_run_id or settings.default_embedding_run_id
     if not run_id:
