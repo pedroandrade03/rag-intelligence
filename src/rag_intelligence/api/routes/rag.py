@@ -11,6 +11,7 @@ from rag_intelligence.rag import RAGRequest, rag_query, rag_query_stream
 from ..deps import RegistryDep, SettingsDep
 
 router = APIRouter(prefix="/rag")
+root_router = APIRouter()
 
 
 class RAGBody(BaseModel):
@@ -24,6 +25,7 @@ class RAGBody(BaseModel):
 
 
 @router.post("/query")
+@root_router.post("/query")
 async def query(body: RAGBody, settings: SettingsDep, registry: RegistryDep):
     run_id = body.embedding_run_id or settings.default_embedding_run_id
     if not run_id:

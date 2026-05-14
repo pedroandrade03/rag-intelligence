@@ -28,6 +28,10 @@ interface SearchToolInput {
   model_filter?: string;
 }
 
+interface LatestTrainingToolInput {
+  model_filter?: string;
+}
+
 interface SemanticResult {
   event_type: string | null;
   map: string | null;
@@ -50,9 +54,17 @@ interface LexicalResult {
   text_summary: string;
 }
 
+interface LatestTrainingRun {
+  run_id: string | null;
+  created_at: string | null;
+  models: LexicalResult[];
+  count: number;
+}
+
 interface SearchToolOutput {
   semantic_results?: SemanticResult[];
   lexical_results?: LexicalResult[];
+  latest_training_run?: LatestTrainingRun;
   results_returned?: number;
   retrieval_ms?: number;
 }
@@ -78,7 +90,10 @@ function renderSearchToolState(
   key: string,
   part: MessagePart
 ) {
-  if (part.type !== "tool-searchKnowledgeBase") {
+  const isSearchTool = part.type === "tool-searchKnowledgeBase";
+  const isLatestTrainingTool = part.type === "tool-getLatestTrainingRun";
+
+  if (!isSearchTool && !isLatestTrainingTool) {
     return null;
   }
 
@@ -89,13 +104,16 @@ function renderSearchToolState(
         key={key}
       >
         <Search className="size-4 animate-pulse text-primary/60" />
-        <span>Preparando busca...</span>
+        <span>
+          {isLatestTrainingTool ? "Preparando consulta de treinamento..." : "Preparando busca..."}
+        </span>
       </div>
     );
   }
 
   if (part.state === "input-available") {
-    const toolInput = part.input as SearchToolInput;
+    const toolInput = part.input as SearchToolInput | LatestTrainingToolInput;
+    const searchInput = toolInput as SearchToolInput;
 
     return (
       <div
@@ -104,11 +122,20 @@ function renderSearchToolState(
       >
         <Search className="size-4 animate-pulse text-primary/60" />
         <div className="flex flex-col gap-0.5">
-          <span>Buscando na base de conhecimento...</span>
-          {toolInput.query && (
+          <span>
+            {isLatestTrainingTool
+              ? "Consultando último treinamento..."
+              : "Buscando na base de conhecimento..."}
+          </span>
+          {isSearchTool && searchInput.query && (
             <span className="max-w-md truncate text-xs italic text-muted-foreground/60">
-              &quot;{toolInput.query}&quot;
-              {toolInput.model_filter && ` [${toolInput.model_filter}]`}
+              &quot;{searchInput.query}&quot;
+              {searchInput.model_filter && ` [${searchInput.model_filter}]`}
+            </span>
+          )}
+          {isLatestTrainingTool && toolInput.model_filter && (
+            <span className="max-w-md truncate text-xs italic text-muted-foreground/60">
+              {toolInput.model_filter}
             </span>
           )}
         </div>
@@ -123,7 +150,11 @@ function renderSearchToolState(
   const output = part.output as SearchToolOutput;
   const semanticResults = output.semantic_results ?? [];
   const lexicalResults = output.lexical_results ?? [];
-  const count = output.results_returned ?? (semanticResults.length + lexicalResults.length);
+  const latestTrainingRun = output.latest_training_run;
+  const latestTrainingModels = latestTrainingRun?.models ?? [];
+  const count =
+    output.results_returned ??
+    (semanticResults.length + lexicalResults.length + latestTrainingModels.length);
 
   if (count === 0) {
     return (
@@ -151,6 +182,56 @@ function renderSearchToolState(
       </SourcesTrigger>
       <SourcesContent className="w-full max-w-full">
         <div className="mt-2 space-y-3">
+          {latestTrainingRun && latestTrainingModels.length > 0 && (
+            <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="px-2 py-0.5 text-xs" variant="secondary">
+                  último treinamento
+                </Badge>
+                {latestTrainingRun.run_id && (
+                  <Badge className="px-2 py-0.5 text-xs" variant="outline">
+                    {latestTrainingRun.run_id}
+                  </Badge>
+                )}
+                {latestTrainingRun.created_at && (
+                  <span className="ml-auto text-xs text-muted-foreground/60">
+                    {new Date(latestTrainingRun.created_at).toLocaleString("pt-BR")}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2">
+                {latestTrainingModels.map((result: LexicalResult, index: number) => (
+                  <div
+                    className="space-y-2 rounded-lg border border-border/40 bg-background/50 p-3"
+                    key={`${key}-latest-${index}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="px-2 py-0.5 text-xs" variant="outline">
+                        {result.model_name}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+                      {result.roc_auc != null && (
+                        <span>ROC-AUC: <strong>{result.roc_auc.toFixed(4)}</strong></span>
+                      )}
+                      {result.f1 != null && (
+                        <span>F1: <strong>{result.f1.toFixed(4)}</strong></span>
+                      )}
+                      {result.balanced_accuracy != null && (
+                        <span>Bal. Acc: <strong>{result.balanced_accuracy.toFixed(4)}</strong></span>
+                      )}
+                      {result.log_loss_val != null && (
+                        <span>Log Loss: <strong>{result.log_loss_val.toFixed(4)}</strong></span>
+                      )}
+                      {result.brier != null && (
+                        <span>Brier: <strong>{result.brier.toFixed(4)}</strong></span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {semanticResults.map((result: SemanticResult, index: number) => (
             <div
               className="space-y-2.5 rounded-xl border border-border/40 bg-card/60 p-4"

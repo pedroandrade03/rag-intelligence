@@ -60,6 +60,21 @@ def test_rag_query_non_streaming():
     assert data["generation_ms"] == 50
 
 
+def test_root_query_alias_non_streaming():
+    app = create_app(settings=_settings())
+    with (
+        patch("rag_intelligence.api.routes.rag.rag_query", side_effect=_fake_rag_response),
+        TestClient(app) as client,
+    ):
+        resp = client.post(
+            "/query",
+            json={"query": "best weapon", "stream": False},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["answer"] == "The AK-47 is the most popular weapon."
+
+
 def test_rag_query_streaming():
     app = create_app(settings=_settings())
     with (

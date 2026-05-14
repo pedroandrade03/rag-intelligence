@@ -11,7 +11,7 @@ from rag_intelligence.providers import ProviderRegistry
 from rag_intelligence.settings import AppSettings
 
 from .middleware import RequestIDMiddleware
-from .routes import health, rag, search
+from .routes import health, metadata, rag, search
 
 LOGGER = logging.getLogger(__name__)
 
@@ -63,8 +63,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     )
 
     app.include_router(health.router, tags=["health"])
+    app.include_router(metadata.router, tags=["metadata"])
     app.include_router(search.router, tags=["search"])
     app.include_router(rag.router, tags=["rag"])
+    app.include_router(rag.root_router, tags=["rag"])
 
     return app
 

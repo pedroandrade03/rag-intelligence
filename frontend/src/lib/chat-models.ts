@@ -55,11 +55,15 @@ export function getChatRuntimeConfig(
     "";
   const defaultModelId = env.CHAT_DEFAULT_MODEL?.trim() || customModelId;
 
-  const models = [...BASE_CHAT_MODELS];
+  const isOpenAICompatible = env.CHAT_PROVIDER?.trim().toLowerCase() === "openai-compatible";
+  const models = isOpenAICompatible ? [] : [...BASE_CHAT_MODELS];
   if (customModelId && !models.some((model) => model.id === customModelId)) {
     models.unshift({
       id: customModelId,
-      name: env.CHAT_MODEL_LABEL?.trim() || env.NEXT_PUBLIC_CHAT_MODEL_LABEL?.trim() || customModelId,
+      name:
+        env.CHAT_MODEL_LABEL?.trim() ||
+        env.NEXT_PUBLIC_CHAT_MODEL_LABEL?.trim() ||
+        customModelId,
       supportsReasoning: parseBoolean(
         env.CHAT_MODEL_SUPPORTS_REASONING ?? env.NEXT_PUBLIC_CHAT_SUPPORTS_REASONING,
         false
@@ -68,6 +72,17 @@ export function getChatRuntimeConfig(
         env.CHAT_MODEL_SUPPORTS_TOOLS ?? env.NEXT_PUBLIC_CHAT_SUPPORTS_TOOLS,
         true
       ),
+    });
+  }
+
+  const localModelEnabled = parseBoolean(env.LOCAL_CHAT_MODEL_ENABLED, isOpenAICompatible);
+  const localModelId = env.LOCAL_CHAT_MODEL?.trim() || "gemma4";
+  if (localModelEnabled && !models.some((model) => model.id === localModelId)) {
+    models.push({
+      id: localModelId,
+      name: env.LOCAL_CHAT_MODEL_LABEL?.trim() || "Gemma4 local (llama.cpp)",
+      supportsReasoning: parseBoolean(env.LOCAL_CHAT_MODEL_SUPPORTS_REASONING, false),
+      supportsTools: parseBoolean(env.LOCAL_CHAT_MODEL_SUPPORTS_TOOLS, true),
     });
   }
 

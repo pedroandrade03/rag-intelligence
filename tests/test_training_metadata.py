@@ -10,6 +10,7 @@ lexical_retrieval = pytest.importorskip("rag_intelligence.lexical_retrieval")
 settings_module = pytest.importorskip("rag_intelligence.settings")
 training_metadata = pytest.importorskip("rag_intelligence.training_metadata")
 
+get_latest_training_run = lexical_retrieval.get_latest_training_run
 lexical_search = lexical_retrieval.lexical_search
 AppSettings = settings_module.AppSettings
 store_training_result = training_metadata.store_training_result
@@ -153,6 +154,35 @@ def test_lexical_search_returns_run_metadata_and_decodes_feature_importances() -
     assert results[0].feature_importances == {"eq_diff": 0.3}
     assert results[0].created_at == "2026-04-11T12:00:00+00:00"
     assert "created_at DESC" in cursor.executed[0][0]
+
+
+def test_get_latest_training_run_returns_latest_run_models() -> None:
+    cursor = FakeCursor(
+        rows=[
+            (
+                "latest-run",
+                "logistic_regression",
+                0.68,
+                0.65,
+                0.66,
+                0.60,
+                0.22,
+                {"eq_diff": 0.2},
+                "logistic regression roc_auc 0.68",
+                datetime(2026, 5, 14, 20, 17, tzinfo=UTC),
+            ),
+        ]
+    )
+    conn = FakeConnection(cursor)
+
+    results = get_latest_training_run(
+        settings=_settings(),
+        conn_factory=lambda _settings: conn,
+    )
+
+    assert [result.run_id for result in results] == ["latest-run"]
+    assert "WITH latest_run" in cursor.executed[0][0]
+    assert "ORDER BY created_at DESC" in cursor.executed[0][0]
 
 
 def test_lexical_search_falls_back_to_metric_ranking_for_natural_language_queries() -> None:

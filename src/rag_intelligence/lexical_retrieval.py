@@ -62,6 +62,26 @@ ORDER BY created_at DESC, model_name ASC
 LIMIT %s;
 """
 
+_LATEST_TRAINING_RUN_SQL = """\
+WITH latest_run AS (
+    SELECT run_id
+    FROM training_runs
+    ORDER BY created_at DESC, run_id DESC
+    LIMIT 1
+)
+SELECT
+    run_id,
+    model_name,
+    roc_auc, f1, balanced_accuracy, log_loss_val, brier,
+    feature_importances,
+    search_text,
+    created_at
+FROM training_runs
+WHERE run_id = (SELECT run_id FROM latest_run)
+{model_filter_clause}
+ORDER BY created_at DESC, model_name ASC;
+"""
+
 _STOP_WORDS = {
     "a",
     "an",
@@ -245,6 +265,39 @@ def _fallback_search(
     return [
         _row_to_result(row, rank=rank, score=float(text_overlap))
         for rank, (row, _model_overlap, text_overlap) in enumerate(ranked_rows[:top_k], start=1)
+    ]
+
+
+def get_latest_training_run(
+    *,
+    model_filter: str | None = None,
+    settings: AppSettings | None = None,
+    conn_factory: Any = None,
+) -> list[LexicalSearchResult]:
+    """Return all model rows belonging to the latest training run_id."""
+    factory = conn_factory or default_conn_factory
+    s = settings or AppSettings.from_env()
+    conn = factory(s)
+
+    model_filter_clause = ""
+    params: list[Any] = []
+    if model_filter:
+        model_filter_clause = "AND model_name = %s"
+        params.append(model_filter)
+
+    sql = _LATEST_TRAINING_RUN_SQL.format(model_filter_clause=model_filter_clause)
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+        cursor.close()
+    finally:
+        conn.close()
+
+    return [
+        _row_to_result(row, rank=rank, score=1.0)
+        for rank, row in enumerate(rows, start=1)
     ]
 
 
