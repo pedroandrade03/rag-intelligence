@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 OLLAMA_LLM_FALLBACK = "ollama/qwen2.5:7b-instruct-q4_K_M"
+LLAMA_CPP_PREFIX = "llama-cpp/"
 OLLAMA_EMBED_FALLBACK = "ollama/nomic-embed-text"
 
 
@@ -90,6 +91,20 @@ class ProviderRegistry:
             model_name = key.removeprefix("ollama/")
             return Ollama(
                 model=model_name, base_url=self._settings.ollama_base_url, request_timeout=120.0
+            )
+
+        if key.startswith(LLAMA_CPP_PREFIX):
+            from llama_index.llms.openai_like import OpenAILike
+
+            model_name = key.removeprefix(LLAMA_CPP_PREFIX)
+            return OpenAILike(
+                model=model_name,
+                api_base=self._settings.llama_cpp_base_url,
+                api_key=self._settings.llama_cpp_api_key,
+                context_window=self._settings.llama_cpp_context_window,
+                is_chat_model=True,
+                is_function_calling_model=False,
+                request_timeout=120.0,
             )
 
         raise ValueError(f"Unknown LLM provider: {key}")

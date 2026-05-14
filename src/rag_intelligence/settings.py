@@ -38,6 +38,9 @@ class AppSettings:
     # Provider defaults
     default_llm: str
     default_embed_model: str
+    llama_cpp_base_url: str
+    llama_cpp_api_key: str
+    llama_cpp_context_window: int
 
     # API server
     api_host: str
@@ -80,6 +83,9 @@ class AppSettings:
             voyage_api_key=raw.get("VOYAGE_API_KEY", "").strip(),
             default_llm=raw.get("DEFAULT_LLM", "ollama/qwen2.5:7b-instruct-q4_K_M"),
             default_embed_model=raw.get("DEFAULT_EMBED_MODEL", "ollama/nomic-embed-text"),
+            llama_cpp_base_url=raw.get("LLAMA_CPP_BASE_URL", "http://127.0.0.1:8080/v1"),
+            llama_cpp_api_key=raw.get("LLAMA_CPP_API_KEY", "local"),
+            llama_cpp_context_window=_parse_int(raw, "LLAMA_CPP_CONTEXT_WINDOW", 4096),
             api_host=raw.get("API_HOST", "0.0.0.0"),
             api_port=_parse_int(raw, "API_PORT", 8000),
             default_embedding_run_id=raw.get("DEFAULT_EMBEDDING_RUN_ID", "").strip(),
