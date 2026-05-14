@@ -52,7 +52,7 @@ Fornecer uma UI de chat para consultar dados de partidas de CS:GO, com:
 1. A página carrega com a sessão mais recente já renderizada pelo servidor.
 2. O usuário envia a mensagem pela UI.
 3. A rota `/api/chat` decide modelo e modo RAG.
-4. Quando o RAG está habilitado, a tool `searchKnowledgeBase` consulta `POST {RAG_API_URL}/search/hybrid`.
+4. Quando o RAG está habilitado, as tools `searchPipelineDocs`, `searchTrainingMetrics` e `getLatestTrainingRun` consultam `POST {RAG_API_URL}/search/hybrid` e `GET {RAG_API_URL}/metadata/training`.
 5. O provider configurado para chat gera a resposta e o AI SDK streama os chunks para o cliente.
 6. A resposta final é persistida no SQLite.
 

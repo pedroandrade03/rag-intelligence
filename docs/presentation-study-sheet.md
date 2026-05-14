@@ -1,6 +1,6 @@
 # RAG Intelligence — Roteiro de Estudo para Apresentação
 
-> Objetivo: folha de estudo rápida para explicar o projeto e responder perguntas do professor sobre arquitetura, RAG, configuração, busca lexical e busca densa/semântica.
+> Objetivo: folha de estudo rápida para explicar o projeto e responder perguntas sobre arquitetura, RAG, configuração, busca lexical e busca densa/semântica.
 
 ---
 
@@ -46,7 +46,7 @@ A aplicação tem:
 - backend **FastAPI**;
 - frontend **Next.js** com chat;
 - **LlamaIndex** para embedding e retrieval semântico;
-- **Ollama** como LLM/embedding local;
+- **Ollama** para embeddings locais e **llama.cpp/Gemma4** como LLM local;
 - **PostgreSQL + pgvector** para busca vetorial;
 - **PostgreSQL Full-Text Search** para busca lexical;
 - **MLflow** para experiment tracking.
@@ -63,15 +63,16 @@ O fluxo mais importante para demonstração é o chat Next.js:
 
 1. Usuário pergunta no chat.
 2. A rota `frontend/src/app/api/chat/route.ts` usa AI SDK com tool calling.
-3. A ferramenta `searchKnowledgeBase` chama o backend em `POST /search/hybrid`.
-4. O backend retorna dois tipos de resultado:
+3. As tools `searchPipelineDocs`, `searchTrainingMetrics` e `getLatestTrainingRun` chamam o backend em `/search/hybrid` e `/metadata/training`.
+4. O backend retorna resultados por domínio:
    - `semantic_results`: busca semântica/densa em docs do pipeline.
    - `lexical_results`: busca lexical em métricas de treinamento ML.
+   - `latest_training_run`: metadados estruturados do último treino.
 5. O LLM do chat sintetiza a resposta em Português Brasileiro usando os resultados retornados.
 
-Resumo oral:
+Resumo técnico:
 
-> No chat, o RAG é implementado como tool calling. O modelo é instruído a buscar antes de responder. A tool chama `/search/hybrid`, que combina busca semântica sobre documentação do pipeline com busca lexical sobre resultados de treinamento. Depois o modelo sintetiza uma resposta em português com base nesses dados.
+> No chat, o RAG é implementado como tool calling. O modelo é instruído a buscar antes de responder. As tools chamam endpoints FastAPI especializados: documentação do pipeline, métricas de treinamento e último treino. Depois o modelo sintetiza uma resposta em português com base nesses dados.
 
 ### 3.2 Endpoint backend `/rag/query`
 
@@ -89,7 +90,7 @@ Esse endpoint monta um `VectorStoreIndex` do LlamaIndex sobre o pgvector e usa `
 - LLM vindo do `ProviderRegistry`
 - modo streaming opcional via SSE
 
-Resumo oral:
+Resumo técnico:
 
 > Além do chat com tool calling, o backend tem `/rag/query`, que usa o QueryEngine do LlamaIndex: recupera nós do pgvector e gera uma resposta com LLM, com suporte a streaming SSE.
 
@@ -284,8 +285,11 @@ Arquivo: `.env.example` e `src/rag_intelligence/settings.py`
 ### Ollama / modelos
 
 - `OLLAMA_BASE_URL=http://localhost:11434`
-- `DEFAULT_LLM=ollama/qwen2.5`
+- `DEFAULT_LLM=llama-cpp/gemma4` para usar Gemma4 via `llama-server` no backend FastAPI
 - `DEFAULT_EMBED_MODEL=ollama/nomic-embed-text`
+- `LLAMA_CPP_BASE_URL=http://127.0.0.1:8080/v1`
+- `LLAMA_CPP_API_KEY=local`
+- `LLAMA_CPP_CONTEXT_WINDOW=4096`
 - `OLLAMA_EMBED_BATCH_SIZE=32`
 
 ### RAG
@@ -322,7 +326,7 @@ Arquivo: `.env.example` e `src/rag_intelligence/settings.py`
 - `src/rag_intelligence/db.py`
   - conexão PostgreSQL, `PGVectorStore`, índices de metadata e HNSW.
 - `src/rag_intelligence/providers.py`
-  - registry de LLMs/embeddings: Ollama, OpenAI, Anthropic, Voyage.
+  - registry de LLMs/embeddings: llama.cpp/OpenAI-compatible, Ollama, OpenAI, Anthropic e Voyage.
 - `src/rag_intelligence/settings.py`
   - configurações por variáveis de ambiente.
 
@@ -366,7 +370,7 @@ Arquivo: `.env.example` e `src/rag_intelligence/settings.py`
 
 ---
 
-## 9. Perguntas prováveis do professor e respostas
+## 9. Perguntas prováveis e respostas
 
 ### “Vocês usam DuckDB?”
 
@@ -392,7 +396,7 @@ Padrão: `ollama/nomic-embed-text`, com 768 dimensões. Também há suporte a Op
 
 ### “Qual LLM?”
 
-Padrão local: Ollama com Qwen 2.5. O projeto também tem abstração para OpenAI GPT-4o e Claude Sonnet se houver API keys.
+Padrão local atualizado: `llama-cpp/gemma4`, usando o `llama-server` em modo OpenAI-compatible. O backend também mantém suporte a Ollama (`ollama/...`), OpenAI GPT-4o e Claude Sonnet se houver API keys.
 
 ### “O que o `/search/hybrid` faz?”
 
@@ -467,7 +471,7 @@ make train-baseline
 
 ---
 
-## 11. Roteiro oral de 3 a 5 minutos
+## 11. Resumo executivo de 3 a 5 minutos
 
 1. **Contexto**
    - “Escolhemos CS:GO analytics com dataset público do Kaggle.”
@@ -479,7 +483,7 @@ make train-baseline
 
 3. **IA/RAG**
    - “Usamos LlamaIndex para embeddings e retrieval.”
-   - “Ollama roda localmente LLM e embeddings.”
+   - “Ollama gera embeddings locais e Gemma4 roda localmente via llama.cpp para inferência.”
    - “O chat usa tool calling para buscar antes de responder.”
 
 4. **Busca semântica**
@@ -500,6 +504,6 @@ make train-baseline
 
 ---
 
-## 12. Frase final para defender a arquitetura
+## 12. Síntese final da arquitetura
 
-> O projeto implementa uma arquitetura RAG local e governada: MinIO cuida do data lake em camadas, PostgreSQL/TimescaleDB centraliza metadados, busca lexical e vetorial com pgvector, LlamaIndex faz embedding/retrieval, Ollama permite inferência local, e o frontend usa tool calling para garantir que as respostas sejam fundamentadas nos dados recuperados.
+> O projeto implementa uma arquitetura RAG local e governada: MinIO cuida do data lake em camadas, PostgreSQL/TimescaleDB centraliza metadados, busca lexical e vetorial com pgvector, LlamaIndex faz embedding/retrieval, Ollama fornece embeddings locais, Gemma4 roda via llama.cpp para inferência local, e o frontend usa tool calling para garantir que as respostas sejam fundamentadas nos dados recuperados.

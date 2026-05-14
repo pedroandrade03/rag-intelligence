@@ -1,6 +1,6 @@
 # Checklist de Entregas — Apresentação RAG Intelligence
 
-Este documento mapeia os 8 sprints pedidos pelo professor para entregáveis reais do repositório, com arquivos, comandos e diagramas Mermaid para abrir no VS Code.
+Este documento mapeia os 8 sprints da entrega para evidências reais do repositório, com arquivos, comandos e diagramas Mermaid para abrir no VS Code.
 
 ---
 
@@ -17,7 +17,7 @@ Este documento mapeia os 8 sprints pedidos pelo professor para entregáveis reai
 - Banco relacional e vetorial em **PostgreSQL/TimescaleDB + pgvector**.
 - Busca lexical com **PostgreSQL Full-Text Search**, não DuckDB.
 - Embeddings/recuperação semântica com **LlamaIndex + pgvector**.
-- LLM e embeddings locais via **Ollama**.
+- Embeddings locais via **Ollama** e LLM local via **Gemma4/llama.cpp**.
 - Tracking de experimentos com **MLflow**.
 - API com **FastAPI**.
 - Interface com **Next.js + AI SDK tool calling**.
@@ -41,7 +41,7 @@ Este documento mapeia os 8 sprints pedidos pelo professor para entregáveis reai
 
 ## Sprint 1 — Domínio e problema
 
-### O que falar
+### Síntese técnica
 
 Escolhemos o domínio de **CS:GO analytics** porque o dataset tem eventos reais de partidas: dano, kills, granadas e metadados de rounds. A empresa fictícia é uma plataforma para analistas de e-sports consultarem estatísticas e explicações por chat.
 
@@ -73,12 +73,12 @@ flowchart TB
 
     subgraph BFF[Next.js BFF]
         ChatRoute[/api/chat/route.ts]
-        Tool[Tool: searchKnowledgeBase]
+        Tool[Tools: searchPipelineDocs / searchTrainingMetrics / getLatestTrainingRun]
     end
 
     FE --> ChatRoute
     ChatRoute --> Tool
-    ChatRoute --> LLM[Ollama / Chat Model]
+    ChatRoute --> LLM[GPT ou Gemma4 local]
 
     subgraph API[FastAPI]
         Query[/query e /rag/query]
@@ -87,6 +87,7 @@ flowchart TB
     end
 
     Tool -->|POST /search/hybrid| Search
+    Tool -->|GET /metadata/training| Metadata
     FE -->|opcional| Query
     FE -->|opcional| Metadata
 
@@ -145,7 +146,7 @@ flowchart LR
     Audit --> Evidence[Relatório de linhagem e integridade]
 ```
 
-### O que falar
+### Síntese técnica
 
 > Cada etapa gera artefatos no MinIO e registra metadados no PostgreSQL. A tabela `dataset_runs` guarda `run_id`, `stage`, `source_run_id`, contadores de linhas, arquivos processados e `quality_summary`. Isso permite rastrear a origem dos dados e auditar a cadeia Bronze → Silver → Gold.
 
@@ -190,7 +191,7 @@ flowchart TD
     TrainingRuns --> Lexical[Busca lexical PostgreSQL FTS]
 ```
 
-### O que falar
+### Síntese técnica
 
 > Depois do treino, registramos os experimentos no MLflow e também persistimos as métricas em `training_runs`, que alimenta a busca lexical do chat.
 
@@ -220,7 +221,7 @@ flowchart LR
     Meta --> PGVector
 ```
 
-### O que falar
+### Síntese técnica
 
 > O requisito permitia Milvus ou outro banco vetorial com justificativa. Usamos pgvector porque simplifica a stack: o mesmo PostgreSQL guarda vetores, metadados, FTS e governança. O índice vetorial usa HNSW e distância de cosseno.
 
@@ -244,7 +245,7 @@ sequenceDiagram
     participant Llama as LlamaIndex QueryEngine
     participant Emb as Embedding Model
     participant Vec as pgvector
-    participant LLM as LLM Ollama
+    participant LLM as LLM Gemma4 / OpenAI-compatible
 
     Client->>API: query + top_k + filtros
     API->>Llama: monta QueryEngine
@@ -257,7 +258,7 @@ sequenceDiagram
     API-->>Client: answer + sources + tempos
 ```
 
-### O que falar
+### Síntese técnica
 
 > A busca vetorial transforma a pergunta em embedding, consulta pgvector por similaridade de cosseno, recupera os chunks mais relevantes e usa esses chunks como contexto para o LLM.
 
@@ -278,7 +279,7 @@ sequenceDiagram
 | Endpoint | Função |
 |---|---|
 | `GET /health` | health check |
-| `POST /query` | alias de apresentação para RAG completo |
+| `POST /query` | alias curto para RAG completo |
 | `POST /rag/query` | RAG completo com opção de streaming |
 | `POST /search` | busca vetorial pura |
 | `POST /search/hybrid` | busca semântica + lexical |
@@ -306,9 +307,9 @@ flowchart TD
     Metadata --> Runs[metadata.py / dataset_runs]
 ```
 
-### O que falar
+### Síntese técnica
 
-> A API tem validação de entrada via Pydantic/FastAPI. `/query` e `/rag/query` recebem `query`, `top_k`, filtros e modo streaming. `/metadata` expõe informações do serviço, runs e linhagem para comprovar governança.
+> A API tem validação de entrada via Pydantic/FastAPI. `/query` e `/rag/query` recebem `query`, `top_k`, filtros e modo streaming. `/metadata` expõe informações do serviço, runs e linhagem para governança.
 
 ---
 
@@ -328,7 +329,7 @@ sequenceDiagram
     participant UI as Next.js UI
     participant BFF as Next.js /api/chat
     participant Model as LLM com tools
-    participant Tool as searchKnowledgeBase
+    participant Tool as AI SDK tools
     participant API as FastAPI /search/hybrid
     participant PG as PostgreSQL
 
@@ -337,7 +338,7 @@ sequenceDiagram
     BFF->>Model: system prompt + schema da tool
     Model-->>BFF: tool_call com parâmetros
     BFF->>Tool: execute(args)
-    Tool->>API: POST /search/hybrid
+    Tool->>API: POST /search/hybrid ou GET /metadata/training
     API->>PG: pgvector + FTS
     PG-->>API: semantic_results + lexical_results
     API-->>Tool: JSON de resultados
@@ -347,7 +348,7 @@ sequenceDiagram
     BFF-->>UI: stream da resposta
 ```
 
-### O que falar
+### Síntese técnica
 
 > O agente de chat está no BFF do Next.js. O modelo recebe a descrição da tool e o schema dos parâmetros. Quando decide chamar a tool, o AI SDK executa a função `execute`, que chama o FastAPI `/search/hybrid`. O FastAPI não decide a tool call no fluxo atual; ele fornece a busca.
 
@@ -398,7 +399,7 @@ Interfaces:
 
 ---
 
-## Checklist final para mostrar ao professor
+## Checklist final de entrega
 
 - [x] Domínio e empresa fictícia definidos.
 - [x] Arquitetura desenhada em Mermaid.
@@ -409,7 +410,7 @@ Interfaces:
 - [x] Problema de ML definido como classificação.
 - [x] Modelos treináveis e registrados no MLflow.
 - [x] Banco vetorial justificado: pgvector em vez de Milvus.
-- [x] Ollama integrado.
+- [x] Ollama integrado para embeddings e llama.cpp/Gemma4 integrado para LLM local.
 - [x] Embeddings e indexação automatizados por Makefile/CLI.
 - [x] Busca vetorial implementada.
 - [x] Prompt e integração com LLM implementados.

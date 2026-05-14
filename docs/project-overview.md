@@ -43,7 +43,7 @@ O sistema e organizado em cinco camadas, seguindo a arquitetura de referencia do
 Pipeline de dados em 5 estagios: Bronze -> Silver -> Gold -> Documents -> Embeddings. Cada estagio transforma e refina os dados, com rastreabilidade completa entre eles via catalogo `dataset_runs` no PostgreSQL.
 
 ### Camada de IA (LlamaIndex + Ollama)
-LlamaIndex e usado para gerar embeddings (via `IngestionPipeline`) e fazer busca vetorial (via `VectorStoreIndex`). Ollama roda localmente os modelos de LLM (Qwen 2.5 7B) e embedding (nomic-embed-text). A sintese de resposta e feita pelo AI SDK no frontend, nao pelo LlamaIndex.
+LlamaIndex e usado para gerar embeddings (via `IngestionPipeline`) e fazer busca vetorial (via `VectorStoreIndex`). Ollama roda localmente o modelo de embedding (`nomic-embed-text`) e Gemma4 roda via llama.cpp para LLM local. A síntese no chat principal é feita pelo AI SDK no frontend; o endpoint backend `/query` também pode usar Gemma4 via `llama-cpp/gemma4`.
 
 ### Camada de Aplicacao
 API FastAPI no backend com endpoints de busca semantica e RAG. Frontend Next.js 16 com chat interativo, selecao de modelo e modo RAG configuravel. O professor sugeriu Gradio ou frontend simples — o grupo optou por um frontend mais completo com Next.js (justificado na secao 14).
@@ -227,7 +227,7 @@ Faz busca vetorial + sintese de LLM. Suporta streaming via SSE.
 
 **Parametros adicionais**:
 - `stream` (padrao: true): Se true, retorna Server-Sent Events
-- `llm_key` (opcional): Qual LLM usar (ex: "ollama/qwen2.5", "gpt-4o", "claude-sonnet")
+- `llm_key` (opcional): Qual LLM usar (ex: "llama-cpp/gemma4", "ollama/...", "gpt-4o", "claude-sonnet")
 
 **Resposta**: Em modo JSON, retorna `query`, `answer`, `sources`, `retrieval_ms`, `generation_ms`. Em modo stream, retorna SSE com chunks de texto.
 
@@ -251,9 +251,9 @@ O AI_Project.pdf sugere Gradio ou frontend simples (Sprint 8 — "Interface"). O
 - **Compositor**: Textarea com selecao de modelo e toggle de modo RAG
 
 ### Modelos Disponiveis no Chat
-- **Qwen 2.5 7B** — Modelo padrao, suporta tools (RAG funciona), sem reasoning visivel
-- **Qwen3 8B** — Suporta tools E reasoning (mostra o processo de pensamento do modelo)
-- **DeepSeek R1 8B** — Suporta reasoning, mas NAO suporta tools (RAG fica desabilitado)
+- **GPT-5.4 Mini** — opção cloud rápida via provider OpenAI-compatible.
+- **Gemma4 local** — opção local via llama.cpp (`llama-server`) com API OpenAI-compatible.
+- **Modelos Ollama opcionais** — Qwen/DeepSeek podem ser usados se instalados localmente e selecionados no provider Ollama.
 
 ### Modos RAG
 - **Auto**: O modelo decide se precisa buscar no banco (toolChoice: "auto")
@@ -270,7 +270,7 @@ Sessoes de chat sao salvas em SQLite local com WAL mode. Cada sessao tem ID, tit
 O `ProviderRegistry` e uma fabrica lazy-loading que abstrai a criacao de instancias de LLM e embedding. Permite trocar de provedor mudando apenas variaveis de ambiente, sem alterar codigo.
 
 ### Provedores de LLM suportados
-- **Ollama** (padrao e fallback): `ollama/qwen2.5:7b-instruct-q4_K_M` — Roda localmente, sem API key
+- **llama.cpp/Gemma4** (padrão local): `llama-cpp/gemma4` — roda localmente via servidor OpenAI-compatible
 - **OpenAI** (se `OPENAI_API_KEY` configurada): `gpt-4o`
 - **Anthropic** (se `ANTHROPIC_API_KEY` configurada): `claude-sonnet`
 
@@ -279,8 +279,8 @@ O `ProviderRegistry` e uma fabrica lazy-loading que abstrai a criacao de instanc
 - **OpenAI** (se key configurada): `text-embedding-3-small` — 768 dimensoes
 - **Voyage** (se `VOYAGE_API_KEY` configurada): `voyage-3`
 
-### Ollama como provedor padrao
-O projeto foi desenhado para funcionar completamente offline, conforme o AI_Project.pdf pede ("Inferencia com LLM local (Ollama)"). O Qwen 2.5 7B consome cerca de 12GB de RAM e o nomic-embed-text cerca de 300MB. Qualquer integrante do grupo pode rodar o sistema inteiro na propria maquina sem gastar nada com APIs.
+### Inferência local
+O projeto foi desenhado para funcionar offline. O modelo de embedding local é `nomic-embed-text` via Ollama, e o LLM local padrão é Gemma4 via llama.cpp (`llama-server`) usando API OpenAI-compatible. Assim, o sistema pode operar sem APIs externas quando os serviços locais estão ativos.
 
 ### Mecanismo de fallback
 Se o `ProviderRegistry` tentar instanciar um provedor e falhar (API key invalida, rede fora, etc.), ele automaticamente cai para o Ollama local e loga um warning. O sistema nunca para por causa de um provedor indisponivel.
@@ -295,7 +295,7 @@ Corresponde ao entregavel obrigatorio 1 do AI_Project.pdf ("Docker Compose funci
 **Servicos principais** (sempre ativos):
 - **MinIO**: Object storage compativel com S3. Armazena todos os dados do data lake (Bronze, Silver, Gold, Documents). Portas 9000 (API) e 9001 (console web).
 - **TimescaleDB**: PostgreSQL com extensoes pgvector e TimescaleDB. Armazena embeddings, metadata de runs e catalogo de dados. Porta 54330.
-- **Ollama**: Servidor de inferencia local. Roda LLMs e modelos de embedding. Porta 11434.
+- **Ollama**: servidor local de embeddings (`nomic-embed-text`). Porta 11434. O LLM local usa Gemma4 via llama.cpp na porta 8080.
 - **RAG API**: FastAPI servindo os endpoints de busca e RAG. Porta 8000.
 
 **Jobs de dados** (perfil `jobs`, rodam sob demanda):
@@ -487,11 +487,10 @@ O professor nao pediu essas tecnologias e elas adicionariam complexidade sem ben
 - **Docker Compose** para orquestracao
 - **MinIO** como data lake (S3-compatible)
 - **TimescaleDB** com pgvector para banco relacional + vetorial
-- **Ollama** para inferencia local de LLM e embeddings
+- **Ollama** para embeddings locais e **llama.cpp/Gemma4** para inferência local de LLM
 - **Jaeger + Prometheus + Grafana** para observabilidade
 
-### Modelos de IA (Locais via Ollama)
-- **Qwen 2.5 7B Instruct** (Q4_K_M) — LLM principal, ~12GB RAM, suporta tool calling
-- **Qwen3 8B** — LLM com reasoning + tool calling
-- **DeepSeek R1 8B** — LLM com reasoning (sem tool support)
-- **nomic-embed-text** — Modelo de embedding, 768 dimensoes, ~300MB RAM
+### Modelos de IA locais
+- **Gemma4 GGUF via llama.cpp** — LLM local principal, exposto em `http://127.0.0.1:8080/v1`.
+- **nomic-embed-text via Ollama** — modelo de embedding, 768 dimensões.
+- **Modelos Ollama opcionais** — Qwen/DeepSeek podem ser usados se baixados com `ollama pull`.

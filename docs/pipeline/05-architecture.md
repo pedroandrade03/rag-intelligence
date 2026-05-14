@@ -9,7 +9,7 @@ Pipeline de dados em estagios: Bronze (ingestao bruta) -> Silver (limpeza) -> Go
 
 ### Camada de IA
 - **LlamaIndex**: Gera embeddings via IngestionPipeline e faz busca vetorial via VectorStoreIndex.
-- **Ollama**: Roda localmente modelos de LLM (Qwen 2.5 7B, ~12GB RAM) e embedding (nomic-embed-text, 768 dimensoes, ~300MB RAM).
+- **Ollama**: roda localmente o modelo de embedding (`nomic-embed-text`, 768 dimensões). **llama.cpp/Gemma4** roda o LLM local em API OpenAI-compatible.
 - **AI SDK**: Sintese de resposta no frontend via streaming SSE.
 
 ### Camada de Aplicacao
@@ -40,7 +40,7 @@ Tudo orquestrado via Docker Compose:
 
 ## ProviderRegistry
 
-Fabrica lazy-loading que abstrai provedores de LLM e embedding. Suporta Ollama (padrao/fallback), OpenAI e Anthropic para LLMs; Ollama, OpenAI e Voyage para embeddings. Fallback automatico para Ollama se provedor falhar.
+Fabrica lazy-loading que abstrai provedores de LLM e embedding. Suporta llama.cpp/OpenAI-compatible, Ollama, OpenAI e Anthropic para LLMs; Ollama, OpenAI e Voyage para embeddings. Fallback automatico para Ollama se provedor falhar.
 
 ## Governanca de Dados
 

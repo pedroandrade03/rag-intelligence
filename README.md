@@ -33,7 +33,7 @@ O sistema alvo do projeto é organizado em cinco camadas:
 - **Camada de Dados**: MinIO como Data Lake em estágios Bronze, Silver e Gold; PostgreSQL com extensão pgvector para metadados, versionamento e indexação vetorial. O PostgreSQL com pgvector é store relacional e vetorial, não broker de mensageria.
 - **Camada de IA**: LlamaIndex como engine de RAG — `IngestionPipeline` para embeddings, `QueryEngine`/`ChatEngine` para recuperação e inferência, tudo dentro do processo FastAPI. Modelos preditivos com scikit-learn/pandas.
 - **Camada de Aplicação**: FastAPI para endpoints HTTP e streaming (SSE/WebSocket) via `astream_chat()` do LlamaIndex; Next.js como cliente web.
-- **Serviços de Suporte**: Ollama como provedor local de LLM/embeddings (fallback quando API keys não configuradas); provedores cloud (OpenAI, Anthropic, Voyage) via abstração LlamaIndex.
+- **Serviços de Suporte**: Ollama como provedor local de embeddings; Gemma4 via llama.cpp/OpenAI-compatible como LLM local; provedores cloud (OpenAI, Anthropic, Voyage) via abstração LlamaIndex.
 - **Camada de MLOps**: servidor MLflow local (UI + API, backend PostgreSQL dedicado `mlflow`, artefatos em volume Docker) para consulta e registro de experimentos; instrumentação completa dos pipelines de ingestão/RAG ainda evolutiva.
 - **Infraestrutura**: Docker Compose como orquestração local e jobs Python para ingestão e transformação de dados.
 
@@ -217,7 +217,7 @@ flowchart TB
             API[API Endpoints /SSE]:::implemented
         end
 
-        OLLAMA[Ollama: Local LLM]:::implemented
+        LLAMACPP[llama.cpp/Gemma4: Local LLM]:::implemented
         MLF[MLflow: Tracking]:::planned
     end
 
@@ -230,7 +230,7 @@ flowchart TB
     B -.->|Metadados| PG
     G --> DOCS --> ING --> PG
     PG --> RAG
-    RAG -.->|LLM Call| OLLAMA
+    RAG -.->|LLM Call| LLAMACPP
     RAG --> API
     G -.-> ANL --> API
     FE <-->|HTTP / Streaming| API
