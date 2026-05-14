@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -11,6 +12,8 @@ from pydantic import BaseModel, Field
 from rag_intelligence.rag import RAGRequest, rag_query, rag_query_stream
 
 from ..deps import RegistryDep, SettingsDep
+
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rag")
 root_router = APIRouter()
@@ -105,11 +108,21 @@ async def query(body: RAGBody, settings: SettingsDep, registry: RegistryDep):
     registry_factory = lambda _s: registry  # noqa: E731
 
     if not body.stream:
-        response = rag_query(
-            request,
-            app_settings_factory=settings_factory,
-            registry_factory=registry_factory,
-        )
+        try:
+            response = rag_query(
+                request,
+                app_settings_factory=settings_factory,
+                registry_factory=registry_factory,
+            )
+        except Exception as exc:
+            LOGGER.warning("RAG query failed", exc_info=True)
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "RAG query unavailable. Check that Ollama embeddings and the configured "
+                    "LLM server are running."
+                ),
+            ) from exc
         return {
             "query": response.query,
             "answer": response.answer,
