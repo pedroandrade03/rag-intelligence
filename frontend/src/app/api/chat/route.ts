@@ -29,7 +29,8 @@ COMPORTAMENTO:
 - NÃO mencione a ferramenta, não mostre JSON, não explique como a busca funciona.
 - NÃO diga "vou buscar" ou "deixe-me verificar". Apenas busque silenciosamente e apresente os resultados.
 - Baseie suas respostas APENAS nos dados retornados pela busca. Nunca invente estatísticas ou use conhecimento próprio.
-- Se a busca não retornar resultados, diga brevemente que não há dados disponíveis e sugira uma pergunta alternativa.
+- Quando o resultado da ferramenta trouxer answer_context, use esse contexto compacto como fonte principal da resposta.
+- Só diga que não há dados se todos os resultados retornados estiverem vazios.
 - Seja direto, cite números específicos, e organize as informações de forma clara.
 - A ÚNICA exceção para não usar a ferramenta é se o usuário fizer uma saudação casual (ex: "oi", "olá") ou pergunta sem relação com o pipeline.
 
@@ -119,8 +120,40 @@ const searchKnowledgeBaseTool = tool({
     const semanticResults = data.semantic_results ?? [];
     const lexicalResults = data.lexical_results ?? [];
     const totalCount = semanticResults.length + lexicalResults.length;
+    const answerContext = [
+      ...semanticResults.slice(0, 5).map(
+        (result: {
+          text?: string;
+          source_file?: string;
+          metadata?: { pipeline_phase?: string; header_path?: string };
+        }) => ({
+          type: "pipeline_doc",
+          phase: result.metadata?.pipeline_phase ?? null,
+          source: result.source_file ?? null,
+          header: result.metadata?.header_path ?? null,
+          text: result.text ?? "",
+        }),
+      ),
+      ...lexicalResults.slice(0, 5).map(
+        (result: {
+          model_name?: string;
+          roc_auc?: number;
+          f1?: number;
+          balanced_accuracy?: number;
+          text_summary?: string;
+        }) => ({
+          type: "ml_training",
+          model_name: result.model_name ?? null,
+          roc_auc: result.roc_auc ?? null,
+          f1: result.f1 ?? null,
+          balanced_accuracy: result.balanced_accuracy ?? null,
+          text: result.text_summary ?? "",
+        }),
+      ),
+    ];
 
     return {
+      answer_context: answerContext,
       semantic_results: semanticResults,
       lexical_results: lexicalResults,
       results_returned: totalCount,
