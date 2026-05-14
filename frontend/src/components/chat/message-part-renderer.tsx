@@ -91,10 +91,11 @@ function renderSearchToolState(
   key: string,
   part: MessagePart
 ) {
+  const isLegacyKnowledgeBaseTool = part.type === "tool-searchKnowledgeBase";
   const isPipelineDocsTool = part.type === "tool-searchPipelineDocs";
   const isTrainingMetricsTool = part.type === "tool-searchTrainingMetrics";
   const isLatestTrainingTool = part.type === "tool-getLatestTrainingRun";
-  const isSearchTool = isPipelineDocsTool || isTrainingMetricsTool;
+  const isSearchTool = isLegacyKnowledgeBaseTool || isPipelineDocsTool || isTrainingMetricsTool;
 
   if (!isSearchTool && !isLatestTrainingTool) {
     return null;
