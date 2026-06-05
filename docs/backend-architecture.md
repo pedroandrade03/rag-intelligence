@@ -311,17 +311,17 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    subgraph next [frontend/src/app/api/chat/route.ts]
+    subgraph next ["frontend chat route.ts"]
         T1[searchPipelineDocs]
         T2[searchTrainingMetrics]
         T3[getLatestTrainingRun]
     end
 
-    T1 -->|POST /search/hybrid<br/>semantic only| HYB[/search/hybrid]
-    T2 -->|POST /search/hybrid<br/>lexical only| HYB
-    T3 -->|GET /metadata/training| TRN[/metadata/training]
+    T1 -->|"POST search hybrid semantic"| HYB["POST /search/hybrid"]
+    T2 -->|"POST search hybrid lexical"| HYB
+    T3 -->|"GET metadata training"| TRN["GET /metadata/training"]
 
-    HYB --> API[FastAPI rag-api :8000]
+    HYB --> API["FastAPI rag-api port 8000"]
     TRN --> API
 ```
 
