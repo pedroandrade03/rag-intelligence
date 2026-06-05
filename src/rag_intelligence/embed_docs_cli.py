@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,6 +28,13 @@ _PHASE_MAP = {
 }
 
 
+def resolve_pipeline_docs_dir() -> Path:
+    override = os.getenv("PIPELINE_DOCS_DIR", "").strip()
+    if override:
+        return Path(override)
+    return PIPELINE_DOCS_DIR
+
+
 def main() -> int:
     load_dotenv()
     setup_logging()
@@ -43,7 +51,7 @@ def main() -> int:
     registry = ProviderRegistry(settings)
     embed_model = registry.get_embed_model()
 
-    docs_dir = PIPELINE_DOCS_DIR
+    docs_dir = resolve_pipeline_docs_dir()
     if not docs_dir.exists():
         LOGGER.error("Pipeline docs directory not found: %s", docs_dir)
         return 2

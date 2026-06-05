@@ -1,4 +1,4 @@
-.PHONY: help setup install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build start ps open endpoints ollama-serve gemma-server llm-check up up-host-ollama up-local-ollama chat-local-ready pipeline-local-ollama demo-local-ollama down down-local-ollama down-all logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search mlflow-up train-logreg train-histgbt train-baseline embed-docs ollama-pull otel-up otel-down otel-logs clean
+.PHONY: help setup install dev test test-q lint fmt typecheck ci ci-frontend ci-all api frontend frontend-build start ps open endpoints ollama-serve gemma-server llm-check up up-compose pipeline-compose demo-compose up-host-ollama up-local-ollama chat-local-ready pipeline-local-ollama demo-local-ollama down down-local-ollama down-all logs bronze silver gold documents documents-smoke embeddings embeddings-smoke search mlflow-up train-logreg train-histgbt train-baseline embed-docs ollama-pull otel-up otel-down otel-logs clean
 
 LOCAL_RUN_DIR := /tmp/rag-intelligence
 RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)
@@ -66,7 +66,7 @@ frontend: ## Run frontend dev server
 frontend-build: ## Build frontend for production
 	cd frontend && npm run build
 
-start: up-local-ollama open ## Start local dev stack and open frontend/API docs/MLflow/MinIO
+start: up-compose open ## Start full Docker Compose stack and open UIs
 
 ps: ## Show local service status and useful URLs
 	@echo "=== URLs ==="
@@ -162,10 +162,17 @@ llm-check: ## Check Ollama embeddings and local Gemma4 endpoints
 		-d '{"model":"gemma4","messages":[{"role":"user","content":"Diga apenas OK"}],"max_tokens":12,"temperature":0}' \
 		| jq -r '.choices[0].message.content // .error.message'
 
-up: ## Start all services (docker compose)
-	docker compose up -d
+up: up-compose ## Start all services (docker compose)
 
-up-host-ollama: ## Start app stack using host Ollama on 127.0.0.1:11434
+up-compose: ## Start full app stack in Docker (infra + MLflow + API + frontend + Ollama)
+	docker compose --profile mlflow up -d --build
+
+pipeline-compose: ## Run bronze→gold→train→embed-docs entirely in Docker
+	docker compose --profile mlflow --profile pipeline run --rm pipeline-runner
+
+demo-compose: up-compose pipeline-compose ## Start stack and run the full data pipeline once
+
+up-host-ollama: ## [legacy] Start app stack using host Ollama on 127.0.0.1:11434
 	COMPOSE_OLLAMA_BASE_URL=http://host.docker.internal:11434 docker compose --profile mlflow up -d --build minio timescaledb mlflow rag-api frontend
 
 up-local-ollama: ## Start infra in Docker and run API/frontend locally against host Ollama
@@ -197,7 +204,7 @@ demo-local-ollama: ## Start local stack and run the full pipeline against host O
 	$(MAKE) pipeline-local-ollama RUN_ID=$(RUN_ID)
 
 down: ## Stop all Docker services (all profiles)
-	docker compose --profile mlflow --profile observability --profile jobs down
+	docker compose --profile mlflow --profile observability --profile jobs --profile pipeline down
 
 down-local-ollama: ## Stop local API/frontend processes started by up-local-ollama
 	zsh -lc 'if [ -f "$(LOCAL_RUN_DIR)/api.pid" ]; then kill "$$(cat "$(LOCAL_RUN_DIR)/api.pid")" 2>/dev/null || true; rm -f "$(LOCAL_RUN_DIR)/api.pid"; fi; pids="$$(lsof -tiTCP:8000 -sTCP:LISTEN 2>/dev/null || true)"; [ -n "$$pids" ] && kill $$pids 2>/dev/null || true'

@@ -92,7 +92,10 @@ export const ChatMessageList = memo(function ChatMessageList({
         ))}
 
         {status === "submitted" && (
-          <ThinkingIndicator supportsReasoning={supportsReasoning} />
+          <ThinkingIndicator
+            label="Consultando dados e gerando resposta..."
+            supportsReasoning={supportsReasoning}
+          />
         )}
       </ConversationContent>
       <ConversationScrollButton />

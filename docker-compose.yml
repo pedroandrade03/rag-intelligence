@@ -32,16 +32,38 @@ services:
     ports:
       - "11434:11434"
     environment:
-      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-4}
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+      OLLAMA_KEEP_ALIVE: "-1"
     volumes:
       - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "Pulling Ollama models..."
+        ollama pull ${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
+        ollama pull nomic-embed-text
+        echo "Ollama models ready."
+    restart: "no"
 
   rag-api:
     build:
       context: .
       dockerfile: Dockerfile.api
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     depends_on:
@@ -49,6 +71,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       PG_HOST: timescaledb
       PG_PORT: "5432"
@@ -62,13 +86,13 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-bronze}
       MINIO_SECURE: ${MINIO_SECURE:-false}
-      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
-      DEFAULT_LLM: ${DEFAULT_LLM:-ollama/qwen2.5}
-      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
+      DEFAULT_LLM: ollama/${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
+      DEFAULT_EMBED_MODEL: ollama/nomic-embed-text
       DEFAULT_EMBEDDING_RUN_ID: ${DEFAULT_EMBEDDING_RUN_ID:-${EMBEDDING_RUN_ID:-}}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_ENDPOINT: http://otel-collector:4318
@@ -77,25 +101,26 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     ports:
       - "3002:3000"
     depends_on:
-      - rag-api
+      rag-api:
+        condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
     environment:
-      RAG_API_URL: ${RAG_API_URL:-http://rag-api:8000}
-      EMBEDDING_RUN_ID: ${EMBEDDING_RUN_ID:-}
-      CHAT_PROVIDER: ${CHAT_PROVIDER:-ollama}
-      CHAT_PROVIDER_BASE_URL: ${CHAT_PROVIDER_BASE_URL:-http://host.docker.internal:8080/v1}
-      CHAT_PROVIDER_API_KEY: ${CHAT_PROVIDER_API_KEY:-local}
-      CHAT_MODEL: ${CHAT_MODEL:-}
-      CHAT_DEFAULT_MODEL: ${CHAT_DEFAULT_MODEL:-}
-      CHAT_MODEL_LABEL: ${CHAT_MODEL_LABEL:-}
-      CHAT_MODEL_SUPPORTS_REASONING: ${CHAT_MODEL_SUPPORTS_REASONING:-false}
-      CHAT_MODEL_SUPPORTS_TOOLS: ${CHAT_MODEL_SUPPORTS_TOOLS:-true}
-      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+      RAG_API_URL: http://rag-api:8000
+      EMBEDDING_RUN_ID: ${EMBEDDING_RUN_ID:-pipeline-docs}
+      CHAT_PROVIDER: ollama
+      LOCAL_CHAT_MODEL_ENABLED: "false"
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
+      CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
+      CHAT_DEFAULT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
+      CHAT_MODEL_LABEL: "Qwen 2.5 3B"
+      CHAT_MODEL_SUPPORTS_REASONING: "false"
+      CHAT_MODEL_SUPPORTS_TOOLS: "true"
+      CHAT_MAX_OUTPUT_TOKENS: "256"
 
   # --- Observability (docker compose --profile observability up -d) ---
 
@@ -296,11 +321,11 @@ services:
     command: ["embed-docs"]
     profiles:
       - jobs
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       timescaledb:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       PG_HOST: timescaledb
       PG_PORT: "5432"
@@ -309,11 +334,12 @@ services:
       PG_DATABASE: ${PG_DATABASE:-ragdb}
       PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
       PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
-      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
-      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
+      DEFAULT_EMBED_MODEL: ollama/nomic-embed-text
+      PIPELINE_DOCS_DIR: /app/docs/pipeline
 
   bronze-importer:
     build:
@@ -436,13 +462,13 @@ services:
     command: ["embedding-ingest"]
     profiles:
       - jobs
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       minio:
         condition: service_started
       timescaledb:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       MINIO_ENDPOINT: ${COMPOSE_MINIO_ENDPOINT:-minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
@@ -468,12 +494,12 @@ services:
       PG_DATABASE: ${PG_DATABASE:-ragdb}
       PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
       PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
-      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
-      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
+      DEFAULT_EMBED_MODEL: ollama/nomic-embed-text
 
   semantic-searcher:
     build:
@@ -481,11 +507,11 @@ services:
     entrypoint: ["semantic-search"]
     profiles:
       - jobs
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       timescaledb:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       PG_HOST: timescaledb
       PG_PORT: "5432"
@@ -494,12 +520,56 @@ services:
       PG_DATABASE: ${PG_DATABASE:-ragdb}
       PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
       PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
-      OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
-      DEFAULT_EMBED_MODEL: ${DEFAULT_EMBED_MODEL:-ollama/nomic-embed-text}
+      DEFAULT_EMBED_MODEL: ollama/nomic-embed-text
+
+  pipeline-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    profiles:
+      - pipeline
+    depends_on:
+      minio:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-bronze}
+      MINIO_SECURE: "false"
+      KAGGLE_USERNAME: ${KAGGLE_USERNAME:-}
+      KAGGLE_KEY: ${KAGGLE_KEY:-}
+      BRONZE_DATASET_SLUG: ${BRONZE_DATASET_SLUG:-skihikingkevin/csgo-matchmaking-damage}
+      BRONZE_DATASET_PREFIX: ${BRONZE_DATASET_PREFIX:-csgo-matchmaking-damage}
+      SILVER_BUCKET: ${SILVER_BUCKET:-silver}
+      GOLD_BUCKET: ${GOLD_BUCKET:-gold}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-csgo_round_next_winner}
+      PG_HOST: timescaledb
+      PG_PORT: "5432"
+      PG_USER: ${PG_USER:-raguser}
+      PG_PASSWORD: ${PG_PASSWORD:-ragpassword}
+      PG_DATABASE: ${PG_DATABASE:-ragdb}
+      PG_TABLE_NAME: ${PG_TABLE_NAME:-rag_embeddings}
+      PG_EMBED_DIM: ${PG_EMBED_DIM:-768}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_EMBED_BATCH_SIZE: ${OLLAMA_EMBED_BATCH_SIZE:-32}
+      DEFAULT_EMBED_MODEL: ollama/nomic-embed-text
+      PIPELINE_DOCS_DIR: /app/docs/pipeline
+      RUN_ID: ${RUN_ID:-}
+    entrypoint: ["/app/scripts/compose-pipeline.sh"]
+    restart: "no"
 
 volumes:
   minio-data:

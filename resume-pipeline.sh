@@ -2,10 +2,8 @@
 # Resume pipeline from embed-docs (silver/gold/train already done)
 set -euo pipefail
 
-echo "=== Embed docs ==="
-set -a; [ -f ./.env ] && . ./.env || true; set +a
-env OLLAMA_BASE_URL=http://127.0.0.1:11434 PG_HOST=localhost PG_PORT=54330 \
-  ./.venv/bin/embed-docs
+echo "=== Embed docs (Docker) ==="
+docker compose --profile jobs run --rm doc-embedder
 
 echo "=== Done! ==="
 echo "Frontend: http://localhost:3002"

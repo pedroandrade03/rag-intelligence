@@ -369,10 +369,14 @@ export function MessagePartRenderer({
 }
 
 export function ThinkingIndicator({
+  label,
   supportsReasoning,
 }: {
+  label?: string;
   supportsReasoning: boolean;
 }) {
+  const defaultLabel = supportsReasoning ? "Iniciando raciocínio..." : "Analisando dados...";
+
   return (
     <div className="flex gap-3">
       <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/80 text-muted-foreground">
@@ -383,7 +387,7 @@ export function ThinkingIndicator({
         <span className="size-1.5 animate-bounce rounded-full bg-primary/50 [animation-delay:150ms]" />
         <span className="size-1.5 animate-bounce rounded-full bg-primary/50 [animation-delay:300ms]" />
         <span className="ml-2 text-sm text-muted-foreground/60">
-          {supportsReasoning ? "Iniciando raciocínio..." : "Analisando dados..."}
+          {label ?? defaultLabel}
         </span>
       </div>
     </div>

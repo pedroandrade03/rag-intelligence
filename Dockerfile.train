@@ -8,6 +8,8 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY docs ./docs
+COPY scripts/compose-pipeline.sh ./scripts/compose-pipeline.sh
+RUN sed -i 's/\r$//' ./scripts/compose-pipeline.sh && chmod +x ./scripts/compose-pipeline.sh
 
 RUN pip install --no-cache-dir ".[ml,mlops]"
 

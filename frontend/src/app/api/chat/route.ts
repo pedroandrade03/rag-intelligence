@@ -41,7 +41,8 @@ ESTRATÉGIA DE FERRAMENTAS:
 - Para perguntas sobre métricas de ML, modelos, feature importances: use searchTrainingMetrics.
 - Para perguntas sobre modelos específicos: use model_filter (ex: "logistic_regression", "hist_gradient_boosting").
 - Na dúvida sobre documentação, use searchPipelineDocs; na dúvida sobre desempenho de modelos, use searchTrainingMetrics.
-- Mantenha top_k entre 3 e 5. Menos resultados = respostas melhores.`;
+- Mantenha top_k entre 3 e 5. Menos resultados = respostas melhores.
+- Se a mensagem incluir a seção CONTEXTO PRÉ-CARREGADO, responda com base nela imediatamente, sem chamar ferramentas.`;
 
 const SYSTEM_PROMPT_NO_TOOLS = `Você é um analista especializado no pipeline de dados e modelos de ML do RAG Intelligence.
 
@@ -108,6 +109,104 @@ function compactLexicalResults(results: LexicalToolResult[], limit = 3) {
     brier: result.brier ?? null,
     text_summary: truncateText(result.text_summary, 500),
   }));
+}
+
+function getLastUserText(messages: UIMessage[]): string {
+  const lastUser = [...messages].reverse().find((message) => message.role === "user");
+  if (!lastUser) {
+    return "";
+  }
+
+  return lastUser.parts
+    .filter((part): part is { type: "text"; text: string } => part.type === "text")
+    .map((part) => part.text)
+    .join(" ")
+    .trim();
+}
+
+function shouldPrefetchRagContext(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (normalized.length < 4) {
+    return false;
+  }
+
+  return !["oi", "olá", "ola", "hello", "hi", "teste", "test"].includes(normalized);
+}
+
+async function prefetchRagContext(
+  userQuery: string,
+  options: { fastMode?: boolean } = {}
+): Promise<string> {
+  const { fastMode = false } = options;
+  const blocks: string[] = [];
+
+  try {
+    const trainingResp = await fetch(`${RAG_API_URL}/metadata/training?latest=true`);
+    if (trainingResp.ok) {
+      const data = await trainingResp.json();
+      const models = compactLexicalResults(data?.models ?? [], 3);
+      if (models.length > 0) {
+        blocks.push(
+          `ÚLTIMO TREINAMENTO (run_id=${data?.run_id ?? "unknown"}): ${JSON.stringify(models)}`
+        );
+      }
+    }
+  } catch {
+    // Prefetch is best-effort; tool calls remain as fallback.
+  }
+
+  const isMlQuery = /modelo|trein|roc|auc|métric|metric|ml|gradient|logistic|baseline/i.test(
+    userQuery
+  );
+  const isPipelineQuery = /bronze|silver|gold|pipeline|arquitetura|rag|embed|minio|mlflow/i.test(
+    userQuery
+  );
+
+  if (userQuery.trim().length > 8 && isMlQuery) {
+    try {
+      const metricData = await runHybridSearch({
+        query: userQuery,
+        embedding_run_id: "pipeline-docs",
+        top_k: 2,
+        include_semantic: false,
+        include_lexical: true,
+      });
+      const metrics = compactLexicalResults(metricData.lexical_results ?? [], 2);
+      if (metrics.length > 0) {
+        blocks.push(`MÉTRICAS: ${JSON.stringify(metrics)}`);
+      }
+    } catch {
+      // Ignore lexical prefetch failures.
+    }
+  }
+
+  if (!fastMode && userQuery.trim().length > 8 && isPipelineQuery) {
+    try {
+      const docData = await runHybridSearch({
+        query: userQuery,
+        embedding_run_id: "pipeline-docs",
+        top_k: 2,
+        include_semantic: true,
+        include_lexical: false,
+      });
+      const docs = compactSemanticResults(docData.semantic_results ?? [], 2);
+      if (docs.length > 0) {
+        blocks.push(
+          `DOCS: ${docs
+            .map((doc) => `[${doc.metadata?.pipeline_phase ?? "geral"}] ${truncateText(doc.text, 400)}`)
+            .join(" | ")}`
+        );
+      }
+    } catch {
+      // Ignore semantic prefetch failures.
+    }
+  }
+
+  if (blocks.length === 0) {
+    return "";
+  }
+
+  return `\n\n=== CONTEXTO PRÉ-CARREGADO (responda com estes dados; evite ferramentas) ===\n${blocks.join("\n\n")}`;
 }
 
 async function runHybridSearch(body: Record<string, unknown>) {
@@ -286,20 +385,26 @@ export async function POST(req: Request) {
   const mode = ragMode ?? "auto";
   const canUseTools = selectedModel.supportsTools;
   const effectiveMode = canUseTools ? mode : "off";
+  const isOllama = chatProvider.config.kind === "ollama";
+  const lastUserText = getLastUserText(messages);
+  const prefetchContext =
+    effectiveMode !== "off" && shouldPrefetchRagContext(lastUserText)
+      ? await prefetchRagContext(lastUserText, { fastMode: isOllama })
+      : "";
+  const useTools = effectiveMode !== "off" && !(isOllama && prefetchContext);
 
-  const tools =
-    effectiveMode === "off"
-      ? undefined
-      : {
+  const tools = useTools
+      ? {
           searchPipelineDocs: searchPipelineDocsTool,
           searchTrainingMetrics: searchTrainingMetricsTool,
           getLatestTrainingRun: getLatestTrainingRunTool,
-        };
+        }
+      : undefined;
   const toolChoice =
-    effectiveMode === "always"
-      ? ("required" as const)
-      : effectiveMode === "off"
-        ? undefined
+    !useTools
+      ? undefined
+      : effectiveMode === "always" && !isOllama
+        ? ("required" as const)
         : ("auto" as const);
 
   const isRegenerateTrigger =
@@ -316,10 +421,16 @@ export async function POST(req: Request) {
 
   const localChatModelId = process.env.LOCAL_CHAT_MODEL?.trim() || "gemma4";
   const maxOutputTokens = Number.parseInt(process.env.CHAT_MAX_OUTPUT_TOKENS ?? "512", 10);
+  const shouldCapOutput =
+    Number.isFinite(maxOutputTokens) &&
+    maxOutputTokens > 0 &&
+    (isOllama || modelId === localChatModelId);
 
   const result = streamText({
     model: chatProvider.provider(modelId),
-    system: effectiveMode === "off" ? SYSTEM_PROMPT_NO_TOOLS : SYSTEM_PROMPT,
+    system:
+      (effectiveMode === "off" ? SYSTEM_PROMPT_NO_TOOLS : SYSTEM_PROMPT) +
+      prefetchContext,
     messages: await convertToModelMessages(messages),
     tools,
     toolChoice,
@@ -327,9 +438,7 @@ export async function POST(req: Request) {
       selectedModel.supportsReasoning && {
         providerOptions: { ollama: { think: true } },
       }),
-    ...(modelId === localChatModelId && Number.isFinite(maxOutputTokens) && maxOutputTokens > 0
-      ? { maxOutputTokens }
-      : {}),
+    ...(shouldCapOutput ? { maxOutputTokens } : {}),
     stopWhen: stepCountIs(3),
   });
 

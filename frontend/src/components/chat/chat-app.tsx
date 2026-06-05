@@ -70,7 +70,7 @@ export function ChatApp({
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedModel, setSelectedModel] = useState(initialSelectedModel);
-  const [ragMode, setRagMode] = useState<RagMode>("always");
+  const [ragMode, setRagMode] = useState<RagMode>("auto");
   const [chatSessions, setChatSessions] = useState(initialSessions);
   const [activeChatId, setActiveChatId] = useState(initialActiveChatId);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
