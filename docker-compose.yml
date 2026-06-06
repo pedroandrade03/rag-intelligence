@@ -29,10 +29,11 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    gpus: all
     ports:
       - "11434:11434"
     environment:
-      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-2}
       OLLAMA_KEEP_ALIVE: "-1"
     volumes:
       - ollama-data:/root/.ollama
@@ -55,7 +56,7 @@ services:
       - |
         set -e
         echo "Pulling Ollama models..."
-        ollama pull ${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
+        ollama pull ${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
         ollama pull nomic-embed-text
         echo "Ollama models ready."
     restart: "no"
@@ -91,7 +92,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
-      DEFAULT_LLM: ollama/${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
+      DEFAULT_LLM: ollama/${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
       DEFAULT_EMBED_MODEL: ollama/nomic-embed-text
       DEFAULT_EMBEDDING_RUN_ID: ${DEFAULT_EMBEDDING_RUN_ID:-${EMBEDDING_RUN_ID:-}}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
@@ -114,13 +115,13 @@ services:
       CHAT_PROVIDER: ollama
       LOCAL_CHAT_MODEL_ENABLED: "false"
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
-      CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
-      CHAT_DEFAULT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:3b-instruct}
-      CHAT_MODEL_LABEL: "Qwen 2.5 3B"
+      OLLAMA_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
+      CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
+      CHAT_DEFAULT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
+      CHAT_MODEL_LABEL: "Qwen 2.5 7B"
       CHAT_MODEL_SUPPORTS_REASONING: "false"
       CHAT_MODEL_SUPPORTS_TOOLS: "true"
-      CHAT_MAX_OUTPUT_TOKENS: "256"
+      CHAT_MAX_OUTPUT_TOKENS: "512"
 
   # --- Observability (docker compose --profile observability up -d) ---
 
